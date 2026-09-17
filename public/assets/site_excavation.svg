@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 450" width="100%" height="100%">
+  <defs>
+    <linearGradient id="sky1" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#bae6fd"/>
+      <stop offset="100%" stop-color="#f8fafc"/>
+    </linearGradient>
+    <linearGradient id="soil" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#b45309"/>
+      <stop offset="100%" stop-color="#78350f"/>
+    </linearGradient>
+  </defs>
+  <rect width="600" height="450" fill="url(#sky1)"/>
+  
+  <!-- Ground Level -->
+  <polygon points="0,260 600,240 600,450 0,450" fill="#a16207"/>
+  <!-- Excavated Pit -->
+  <polygon points="120,270 480,260 520,380 80,390" fill="url(#soil)" stroke="#451a03" stroke-width="2"/>
+  <polygon points="150,290 450,285 470,360 130,365" fill="#581c87" fill-opacity="0.1"/>
+
+  <!-- Survey Pegs & Yellow Strings -->
+  <line x1="80" y1="230" x2="80" y2="280" stroke="#f59e0b" stroke-width="3"/>
+  <line x1="520" y1="220" x2="520" y2="270" stroke="#f59e0b" stroke-width="3"/>
+  <line x1="80" y1="240" x2="520" y2="230" stroke="#facc15" stroke-width="1.5" stroke-dasharray="4 2"/>
+  
+  <!-- Excavator JCB graphic silhouette -->
+  <g transform="translate(360, 180) scale(0.7)">
+    <rect x="50" y="50" width="90" height="50" rx="6" fill="#eab308" stroke="#ca8a04" stroke-width="3"/>
+    <rect x="80" y="20" width="45" height="35" rx="3" fill="#38bdf8" stroke="#0284c7" stroke-width="2"/>
+    <circle cx="65" cy="110" r="16" fill="#1e293b"/>
+    <circle cx="125" cy="110" r="16" fill="#1e293b"/>
+    <!-- Arm & Bucket -->
+    <line x1="50" y1="70" x2="-20" y2="40" stroke="#eab308" stroke-width="10" stroke-linecap="round"/>
+    <line x1="-20" y1="40" x2="-60" y2="100" stroke="#eab308" stroke-width="8" stroke-linecap="round"/>
+    <polygon points="-60,100 -80,120 -50,130 -40,110" fill="#334155"/>
+  </g>
+
+  <!-- Photo Stamp Overlay -->
+  <rect x="20" y="380" width="310" height="50" rx="6" fill="#0f172a" fill-opacity="0.85"/>
+  <circle cx="40" cy="405" r="8" fill="#10b981"/>
+  <text x="56" y="398" fill="#ffffff" font-family="'Segoe UI'" font-size="11" font-weight="bold">SITE EXCAVATION &amp; TRENCHING</text>
+  <text x="56" y="415" fill="#cbd5e1" font-family="'Courier New'" font-size="10">10-AUG-2026 | Grid North | Sharma Residence</text>
+</svg>

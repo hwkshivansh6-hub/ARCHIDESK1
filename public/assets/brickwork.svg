@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 450" width="100%" height="100%">
+  <defs>
+    <pattern id="aacBlock" width="30" height="15" patternUnits="userSpaceOnUse">
+      <rect width="30" height="15" fill="#e2e8f0" stroke="#94a3b8" stroke-width="0.8"/>
+    </pattern>
+    <pattern id="aacBlockOffset" width="30" height="15" patternUnits="userSpaceOnUse">
+      <rect width="30" height="15" fill="#f1f5f9" stroke="#94a3b8" stroke-width="0.8"/>
+    </pattern>
+  </defs>
+
+  <rect width="600" height="450" fill="#bae6fd"/>
+
+  <!-- Plinth ground -->
+  <rect x="0" y="340" width="600" height="110" fill="#475569"/>
+
+  <!-- Concrete Columns on sides -->
+  <rect x="50" y="80" width="40" height="260" fill="#94a3b8" stroke="#334155" stroke-width="2"/>
+  <rect x="490" y="80" width="40" height="260" fill="#94a3b8" stroke="#334155" stroke-width="2"/>
+
+  <!-- AAC Block Wall constructed up to lintel level -->
+  <rect x="90" y="160" width="400" height="180" fill="url(#aacBlock)" stroke="#64748b" stroke-width="1.5"/>
+
+  <!-- Window Opening left in blockwork -->
+  <rect x="180" y="190" width="120" height="110" fill="#0284c7" fill-opacity="0.3" stroke="#0f172a" stroke-width="2.5"/>
+  <text x="210" y="250" fill="#0f172a" font-family="'Courier New'" font-size="11" font-weight="bold">W1 (4'x4')</text>
+
+  <!-- Door Opening left in blockwork -->
+  <rect x="340" y="210" width="90" height="130" fill="#0f172a" fill-opacity="0.2" stroke="#0f172a" stroke-width="2.5"/>
+  <text x="365" y="280" fill="#0f172a" font-family="'Courier New'" font-size="11" font-weight="bold">DOOR</text>
+
+  <!-- Cast Lintel Beam on top -->
+  <rect x="90" y="140" width="400" height="20" fill="#64748b" stroke="#1e293b" stroke-width="2"/>
+  <text x="220" y="154" fill="#f8fafc" font-family="'Courier New'" font-size="9" font-weight="bold">CONTINUOUS RCC LINTEL BEAM</text>
+
+  <!-- Steel Scaffolding Pipes -->
+  <g stroke="#e11d48" stroke-width="4">
+    <line x1="120" y1="90" x2="120" y2="340"/>
+    <line x1="250" y1="90" x2="250" y2="340"/>
+    <line x1="100" y1="180" x2="270" y2="180"/>
+    <line x1="120" y1="180" x2="250" y2="280" stroke-width="2.5"/>
+    <line x1="120" y1="280" x2="250" y2="180" stroke-width="2.5"/>
+  </g>
+
+  <!-- Photo Stamp Overlay -->
+  <rect x="20" y="380" width="310" height="50" rx="6" fill="#0f172a" fill-opacity="0.85"/>
+  <circle cx="40" cy="405" r="8" fill="#ec4899"/>
+  <text x="56" y="398" fill="#ffffff" font-family="'Segoe UI'" font-size="11" font-weight="bold">EXTERNAL AAC MASONRY &amp; LINTEL</text>
+  <text x="56" y="415" fill="#cbd5e1" font-family="'Courier New'" font-size="10">15-SEP-2026 | AAC Blocks (8" thick)</text>
+</svg>

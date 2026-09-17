@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 450" width="100%" height="100%">
+  <defs>
+    <linearGradient id="sunsetSky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#fdba74"/>
+      <stop offset="40%" stop-color="#fed7aa"/>
+      <stop offset="100%" stop-color="#ffedd5"/>
+    </linearGradient>
+    <linearGradient id="facadeWarm" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#f8fafc"/>
+    </linearGradient>
+    <linearGradient id="poolGlass" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0284c7"/>
+      <stop offset="100%" stop-color="#0369a1"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="600" height="450" fill="url(#sunsetSky)"/>
+
+  <!-- Landscaping Background Trees -->
+  <circle cx="90" cy="220" r="60" fill="#15803d" fill-opacity="0.6"/>
+  <circle cx="510" cy="230" r="70" fill="#166534" fill-opacity="0.5"/>
+
+  <!-- Modern Villa Geometric Massing -->
+  <!-- Ground Level White Box -->
+  <polygon points="120,220 440,210 460,340 100,350" fill="url(#facadeWarm)" stroke="#cbd5e1" stroke-width="1.5"/>
+
+  <!-- Upper Cantilevered Charcoal / Wood Clad Cube -->
+  <polygon points="160,110 470,100 450,220 140,230" fill="#1e293b" stroke="#0f172a" stroke-width="2"/>
+
+  <!-- Floor-to-Ceiling Warm Glowing Glass -->
+  <polygon points="170,120 340,115 330,220 160,225" fill="#fef08a" fill-opacity="0.75" stroke="#ca8a04" stroke-width="1.5"/>
+  <line x1="250" y1="118" x2="245" y2="222" stroke="#ca8a04" stroke-width="1.5"/>
+
+  <!-- Timber Louvers Feature Screen -->
+  <g stroke="#b45309" stroke-width="2.5">
+    <line x1="360" y1="110" x2="350" y2="218"/>
+    <line x1="375" y1="110" x2="365" y2="218"/>
+    <line x1="390" y1="109" x2="380" y2="217"/>
+    <line x1="405" y1="108" x2="395" y2="216"/>
+    <line x1="420" y1="107" x2="410" y2="215"/>
+    <line x1="435" y1="106" x2="425" y2="214"/>
+  </g>
+
+  <!-- Ground Floor Pivot Door & Teak Entrance -->
+  <polygon points="160,250 210,248 205,340 155,342" fill="#78350f" stroke="#451a03" stroke-width="1.5"/>
+  <circle cx="200" cy="295" r="3" fill="#fef08a"/>
+
+  <!-- Ground Floor Living Room Window -->
+  <polygon points="240,245 420,240 435,335 255,340" fill="#38bdf8" fill-opacity="0.4" stroke="#0284c7" stroke-width="1.5"/>
+
+  <!-- Reflective Plinth & Lawn -->
+  <polygon points="0,350 600,335 600,450 0,450" fill="#14532d"/>
+  
+  <!-- Step walkway & travertine tiles -->
+  <polygon points="120,360 260,355 240,430 80,435" fill="#e2e8f0" stroke="#94a3b8" stroke-width="1"/>
+  <polygon points="280,365 480,360 490,440 270,445" fill="url(#poolGlass)" stroke="#38bdf8" stroke-width="2"/>
+  <text x="350" y="410" fill="#bae6fd" font-family="'Segoe UI'" font-size="11" font-weight="bold" letter-spacing="2">REFLECTING POOL</text>
+
+  <!-- Photo Stamp Overlay -->
+  <rect x="20" y="380" width="310" height="50" rx="6" fill="#0f172a" fill-opacity="0.85"/>
+  <circle cx="40" cy="405" r="8" fill="#a855f7"/>
+  <text x="56" y="398" fill="#ffffff" font-family="'Segoe UI'" font-size="11" font-weight="bold">3D ARCHITECTURAL CONCEPT RENDER</text>
+  <text x="56" y="415" fill="#cbd5e1" font-family="'Courier New'" font-size="10">04-AUG-2026 | Evening Solar Simulation</text>
+</svg>

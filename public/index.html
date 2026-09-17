@@ -1,0 +1,1327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>SHASWAT DESIGNS — Architect & Engineering Studio</title>
+  <meta name="description" content="Simple, clean, professional digital assistant for architects and architecture studios to manage projects, clients, accounts, drawings, and site images.">
+  
+  <!-- Google Fonts: Space Grotesk, Plus Jakarta Sans, JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+  
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- ================= AUTH VIEW (LOGIN / REGISTER) ================= -->
+  <div id="auth-view" class="auth-page-wrapper" style="display: none;">
+    <div class="auth-card">
+      <div class="auth-logo-badge">📐</div>
+      <h2 style="font-family: var(--font-heading); font-size: 22px; font-weight: 700; color: var(--arch-ink); margin-bottom: 4px;">SHASWAT DESIGNS</h2>
+      <p style="font-size: 13px; color: var(--arch-ink-muted); margin-bottom: 18px;">Architecture • Engineering • Digital Studio</p>
+
+      <!-- Auth Toggle Tabs -->
+      <div style="display: flex; gap: 4px; background: var(--arch-card-subtle); padding: 3px; border-radius: var(--radius-md); border: 1px solid var(--arch-border); margin-bottom: 20px;">
+        <button id="tab-auth-login" class="cat-tab active" type="button" style="padding: 6px 12px; font-size: 12px; border: none;">Sign In</button>
+        <button id="tab-auth-register" class="cat-tab" type="button" style="padding: 6px 12px; font-size: 12px; border: none;">Register New Account</button>
+      </div>
+      
+      <!-- 1. Login Form -->
+      <form id="login-form">
+        <div class="form-group">
+          <label class="form-label required" for="login-email">Studio Email / Username</label>
+          <input type="email" id="login-email" class="form-control" placeholder="e.g. your-email@gmail.com" required value="architect@archidesk.com">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label required" for="login-password">Password</label>
+          <input type="password" id="login-password" class="form-control" placeholder="••••••••" required value="studio2026">
+        </div>
+
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; font-size: 12px;">
+          <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; color: var(--arch-ink-secondary);">
+            <input type="checkbox" id="remember-me" checked> Remember session
+          </label>
+          <span style="color: var(--arch-blueprint); font-weight: 600; cursor: pointer;" id="quick-demo-fill">Auto-Fill Demo</span>
+        </div>
+
+        <button type="submit" class="btn btn-primary" style="width: 100%; padding: 12px; font-size: 14px;">
+          Enter SHASWAT DESIGNS Workspace →
+        </button>
+
+        <div style="margin-top: 18px; padding-top: 14px; border-top: 1px dashed var(--arch-border); font-size: 11px; color: var(--arch-ink-muted); text-align: center;">
+          New engineer / studio? <a href="#" id="link-switch-to-register" style="color: var(--arch-blueprint); font-weight: 600;">Create Account</a>
+          <br>
+          Demo Account: <strong>architect@archidesk.com</strong> / <strong>studio2026</strong>
+        </div>
+      </form>
+
+      <!-- 2. Registration Form -->
+      <form id="register-form" style="display: none;">
+        <div class="form-group">
+          <label class="form-label required" for="reg-name">Principal Architect / Engineer Name</label>
+          <input type="text" id="reg-name" class="form-control" placeholder="e.g. Er. Shivansh" required value="Er. Shivansh">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label required" for="reg-email">Email Address</label>
+          <input type="email" id="reg-email" class="form-control" placeholder="e.g. HWK@gmail.com" required>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label required" for="reg-password">Password</label>
+          <input type="password" id="reg-password" class="form-control" placeholder="Minimum 4 characters" minlength="4" required>
+        </div>
+
+        <div class="form-row-2">
+          <div class="form-group">
+            <label class="form-label required" for="reg-studio">Studio Name</label>
+            <input type="text" id="reg-studio" class="form-control" value="SHASWAT DESIGNS" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="reg-role">Role</label>
+            <input type="text" id="reg-role" class="form-control" value="Principal Architect" required>
+          </div>
+        </div>
+
+        <button type="submit" class="btn btn-primary" style="width: 100%; padding: 12px; font-size: 14px; margin-top: 6px;">
+          Create Studio Account &amp; Enter →
+        </button>
+
+        <div style="margin-top: 18px; padding-top: 14px; border-top: 1px dashed var(--arch-border); font-size: 11px; color: var(--arch-ink-muted); text-align: center;">
+          Already have an account? <a href="#" id="link-switch-to-login" style="color: var(--arch-blueprint); font-weight: 600;">Sign In</a>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ================= MAIN APP VIEW (PROTECTED) ================= -->
+  <div id="app-view" class="app-wrapper" style="display: none;">
+    
+    <div class="device-frame-container">
+      <div class="mobile-notch"></div>
+
+      <!-- Studio Header -->
+      <header class="top-header">
+        <div class="brand-section">
+          <div class="brand-mark">📐</div>
+          <div class="brand-info">
+            <h1 id="app-studio-title">SHASWAT DESIGNS <span class="studio-badge">STUDIO</span></h1>
+            <p id="app-user-subtitle">Er. Shivansh • Principal Architect</p>
+          </div>
+        </div>
+
+        <!-- Architectural Tools & Controls -->
+        <div class="header-actions">
+          <!-- Scale Bar -->
+          <div class="arch-scale-bar" title="Drafting Metric Scale">
+            <span>SCALE</span>
+            <div class="scale-ticks">
+              <div class="scale-tick major"></div>
+              <div class="scale-tick minor"></div>
+              <div class="scale-tick minor"></div>
+              <div class="scale-tick major"></div>
+            </div>
+            <span>1:100</span>
+          </div>
+
+          <!-- Edit Profile Quick Button -->
+          <button id="btn-header-profile" class="tool-btn" title="Change Principal Architect / Engineer Name">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            <span class="desktop-only-text">Profile</span>
+          </button>
+
+          <!-- Drafting Grid Toggle -->
+          <button id="toggle-grid-btn" class="tool-btn" title="Toggle Architectural Drafting Grid">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/></svg>
+            <span class="desktop-only-text">Grid</span>
+          </button>
+
+          <!-- Mobile Frame Switcher -->
+          <button id="toggle-frame-btn" class="tool-btn" title="Switch between Mobile Frame and Studio Desktop View">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
+            <span id="frame-btn-text" class="desktop-only-text">Mobile View</span>
+          </button>
+
+          <!-- User & Logout -->
+          <div class="user-menu">
+            <button id="logout-btn" class="logout-btn" title="Logout session">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>
+              <span>Logout</span>
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <!-- Main Dynamic Content Viewport -->
+      <main class="main-viewport" id="main-viewport">
+        
+        <!-- ================= SECTION A: DASHBOARD ================= -->
+        <section id="view-dashboard" class="app-section">
+          
+          <!-- Engineer Greeting Banner -->
+          <div class="arch-card" style="margin-bottom: 20px; background: linear-gradient(135deg, #ffffff 0%, #faf8f5 100%); border-left: 4px solid var(--arch-ruler-gold);">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+              <div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span style="font-size: 22px;">📐</span>
+                  <h2 id="dash-greeting-text" style="font-family: var(--font-heading); font-size: 20px; font-weight: 700; color: var(--arch-ink); margin: 0;">
+                    Good evening, Er. Shivansh 👋
+                  </h2>
+                </div>
+                <p style="font-size: 13px; color: var(--arch-ink-muted); margin-top: 4px;" id="dash-greeting-subtitle">
+                  Welcome to <strong>SHASWAT DESIGNS</strong> • Digital Studio Workspace
+                </p>
+              </div>
+              <div style="display: flex; gap: 8px;">
+                <button class="btn btn-secondary btn-sm" id="btn-dash-edit-profile" title="Change Principal Architect or Engineer name">
+                  ✏️ Change Principal Name
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="section-header">
+            <div>
+              <h2 class="section-title">Studio Dashboard</h2>
+              <p class="section-subtitle">Real-time portfolio overview and financial tracking</p>
+            </div>
+            <div>
+              <button class="btn btn-primary btn-sm" id="dash-new-project-btn">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                New Project
+              </button>
+            </div>
+          </div>
+
+          <!-- The 3 Main Connected Pillars: Projects, Clients, Accounts -->
+          <div class="dashboard-pillars-grid">
+            
+            <!-- Pillar 1: Projects -->
+            <div class="pillar-card pillar-projects" id="dash-card-projects">
+              <div>
+                <div class="pillar-header">
+                  <div class="pillar-icon">📐</div>
+                  <span class="pillar-badge" id="dash-projects-total">4 Projects</span>
+                </div>
+                <div class="pillar-label">A. Projects</div>
+                <p style="font-size: 12px; color: var(--arch-ink-muted); margin-top: 2px;">Active &amp; pipeline architectural works</p>
+              </div>
+
+              <div class="pillar-breakdown">
+                <div class="breakdown-row">
+                  <span class="breakdown-label">Active (In progress)</span>
+                  <span class="breakdown-val" id="dash-proj-active">2</span>
+                </div>
+                <div class="breakdown-row">
+                  <span class="breakdown-label">Pre-Planning (Concepts)</span>
+                  <span class="breakdown-val" id="dash-proj-preplan">1</span>
+                </div>
+                <div class="breakdown-row">
+                  <span class="breakdown-label">Completed (Handover)</span>
+                  <span class="breakdown-val" id="dash-proj-completed">1</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Pillar 2: Clients -->
+            <div class="pillar-card pillar-clients" id="dash-card-clients">
+              <div>
+                <div class="pillar-header">
+                  <div class="pillar-icon">👥</div>
+                  <span class="pillar-badge" id="dash-clients-total">3 Clients</span>
+                </div>
+                <div class="pillar-label">B. Clients</div>
+                <p style="font-size: 12px; color: var(--arch-ink-muted); margin-top: 2px;">Direct client-to-project directory</p>
+              </div>
+
+              <div class="pillar-breakdown">
+                <div class="breakdown-row">
+                  <span class="breakdown-label">Active Commission Clients</span>
+                  <span class="breakdown-val" id="dash-clients-count">3</span>
+                </div>
+                <div class="breakdown-row">
+                  <span class="breakdown-label">Avg. Projects / Client</span>
+                  <span class="breakdown-val">1.3</span>
+                </div>
+                <div class="breakdown-row">
+                  <span class="breakdown-label">Key Client</span>
+                  <span class="breakdown-val">Rahul Sharma</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Pillar 3: Accounts -->
+            <div class="pillar-card pillar-accounts" id="dash-card-accounts">
+              <div>
+                <div class="pillar-header">
+                  <div class="pillar-icon">💰</div>
+                  <span class="pillar-badge" style="background:#dcfce7; color:#15803d;">Live Ledger</span>
+                </div>
+                <div class="pillar-label">C. Accounts</div>
+                <p style="font-size: 12px; color: var(--arch-ink-muted); margin-top: 2px;">Deal amount → Received → Balance</p>
+              </div>
+
+              <div class="financial-display" style="margin-top: 10px;">
+                <div class="financial-total" id="dash-total-deal">₹2,90,000</div>
+                <div style="display: flex; justify-content: space-between; font-size: 11px; margin-top: 4px;">
+                  <span style="color: var(--arch-sage); font-weight: 600;">Received: <span id="dash-total-received">₹1,45,000</span></span>
+                  <span class="financial-balance-tag">Balance: <span id="dash-total-balance">₹1,45,000</span></span>
+                </div>
+              </div>
+
+              <div class="fin-progress-bar">
+                <div class="fin-progress-fill" id="dash-finance-progress" style="width: 50%;"></div>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- Quick Action Strip -->
+          <div class="quick-action-strip">
+            <button class="quick-action-chip" id="action-quick-project">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              + New Project
+            </button>
+            <button class="quick-action-chip" id="action-quick-client">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              + New Client
+            </button>
+            <button class="quick-action-chip" id="action-quick-payment">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
+              + Receive Payment
+            </button>
+            <button class="quick-action-chip" id="action-quick-manage-types">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg>
+              Project Types
+            </button>
+          </div>
+
+          <!-- Recent Activity & Projects Split -->
+          <div style="display: grid; grid-template-columns: 1.5fr 1fr; gap: 20px;" class="dash-splits">
+            <!-- Recent Projects -->
+            <div class="arch-card">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
+                <h3 style="font-family: var(--font-heading); font-size: 15px; font-weight: 700;">Recent Projects</h3>
+                <button class="btn btn-secondary btn-sm" id="dash-view-all-projects">View All →</button>
+              </div>
+              <div id="dash-recent-projects-list" style="display: flex; flex-direction: column; gap: 10px;">
+                <!-- Rendered dynamically -->
+              </div>
+            </div>
+
+            <!-- Recent Payments Ledger -->
+            <div class="arch-card">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
+                <h3 style="font-family: var(--font-heading); font-size: 15px; font-weight: 700;">Latest Payments</h3>
+                <button class="btn btn-secondary btn-sm" id="dash-view-all-accounts">Ledger →</button>
+              </div>
+              <div id="dash-recent-payments-list" style="display: flex; flex-direction: column; gap: 10px;">
+                <!-- Rendered dynamically -->
+              </div>
+            </div>
+          </div>
+        </section>
+
+
+        <!-- ================= SECTION B: PROJECTS ================= -->
+        <section id="view-projects" class="app-section" style="display: none;">
+          <div class="section-header">
+            <div>
+              <h2 class="section-title">Projects</h2>
+              <p class="section-subtitle">Categorized architectural projects &amp; workspaces</p>
+            </div>
+            <div>
+              <button class="btn btn-primary" id="projects-add-btn">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                + New Project
+              </button>
+            </div>
+          </div>
+
+          <!-- Category Tabs: Active | Completed | Pre-Planning -->
+          <div class="category-tabs">
+            <div class="cat-tab active" data-status="">
+              All Projects <span class="tab-badge" id="tab-badge-all">0</span>
+            </div>
+            <div class="cat-tab" data-status="Active">
+              Active <span class="tab-badge" id="tab-badge-active">0</span>
+            </div>
+            <div class="cat-tab" data-status="Pre-Planning">
+              Pre-Planning <span class="tab-badge" id="tab-badge-preplan">0</span>
+            </div>
+            <div class="cat-tab" data-status="Completed">
+              Completed <span class="tab-badge" id="tab-badge-completed">0</span>
+            </div>
+          </div>
+
+          <!-- Search & Multi-Filters (Status, Project Type, Client, Location) -->
+          <div class="filter-search-container">
+            <div class="search-input-wrapper">
+              <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <input type="text" id="project-search-input" class="search-input" placeholder="Search by project name, client, type, or location (e.g. Sharma, Lucknow)...">
+            </div>
+
+            <div class="filter-pills-row">
+              <!-- Project Type Filter -->
+              <select id="filter-project-type" class="filter-select">
+                <option value="">All Project Types</option>
+              </select>
+
+              <!-- Client Filter -->
+              <select id="filter-project-client" class="filter-select">
+                <option value="">All Clients</option>
+              </select>
+
+              <!-- Location Filter -->
+              <input type="text" id="filter-project-location" class="filter-select" style="min-width: 130px;" placeholder="Filter Location...">
+
+              <button id="reset-project-filters" class="btn btn-secondary btn-sm" style="margin-left: auto;">
+                Reset Filters
+              </button>
+            </div>
+          </div>
+
+          <!-- Projects Grid -->
+          <div id="projects-cards-container" class="projects-grid">
+            <!-- Dynamic cards injected here -->
+          </div>
+        </section>
+
+
+        <!-- ================= SECTION C: PROJECT WORKSPACE (DETAILS) ================= -->
+        <section id="view-project-workspace" class="app-section" style="display: none;">
+          
+          <!-- Back button & workspace header -->
+          <button class="back-to-projects-btn" id="btn-back-to-projects">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+            Back to Projects
+          </button>
+
+          <div class="workspace-header">
+            <div class="workspace-top-row">
+              <div>
+                <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px;">
+                  <h2 class="section-title" id="ws-project-name" style="margin: 0;">Sharma Residence</h2>
+                  <span class="badge-type" id="ws-project-type-badge">Residential</span>
+                  
+                  <!-- Status dropdown for quick move -->
+                  <select id="ws-status-selector" class="filter-select" style="padding: 3px 8px; font-weight: 700; border-radius: var(--radius-pill);">
+                    <option value="Active">Active</option>
+                    <option value="Pre-Planning">Pre-Planning</option>
+                    <option value="Completed">Completed</option>
+                  </select>
+                </div>
+
+                <div class="project-meta-row" style="margin: 0;">
+                  <span>Client: <strong id="ws-client-name" style="color: var(--arch-ink); cursor: pointer; text-decoration: underline;">Rahul Sharma</strong></span>
+                  <span>•</span>
+                  <span id="ws-location">Lucknow</span>
+                </div>
+              </div>
+
+              <!-- Quick Workspace Actions -->
+              <div style="display: flex; gap: 8px;">
+                <button class="btn btn-secondary btn-sm" id="ws-edit-project-btn">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+                  Edit Project
+                </button>
+                <button class="btn btn-secondary btn-sm" id="ws-delete-project-btn" style="color: var(--arch-rose);">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                </button>
+              </div>
+            </div>
+
+            <!-- Workspace Navigation Tabs -->
+            <div class="workspace-nav-tabs">
+              <button class="ws-tab-btn active" data-tab="ws-tab-overview">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+                Overview
+              </button>
+              <button class="ws-tab-btn" data-tab="ws-tab-accounts">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
+                Accounts &amp; Payments
+              </button>
+              <button class="ws-tab-btn" data-tab="ws-tab-drawings">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+                Drawings (<span id="ws-drawings-count-badge">0</span>)
+              </button>
+              <button class="ws-tab-btn" data-tab="ws-tab-images">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                Site Images &amp; Timeline (<span id="ws-images-count-badge">0</span>)
+              </button>
+            </div>
+          </div>
+
+          <!-- TAB 1: OVERVIEW -->
+          <div id="ws-tab-overview" class="ws-tab-pane active">
+            <div class="overview-grid">
+              
+              <!-- Left Column: Specs & Notes -->
+              <div class="arch-card">
+                <h3 style="font-family: var(--font-heading); font-size: 16px; font-weight: 700; margin-bottom: 16px;">Architectural Overview</h3>
+                
+                <div class="form-row-2">
+                  <div class="info-group">
+                    <div class="info-label">Start Date</div>
+                    <div class="info-value" id="ws-info-start-date">—</div>
+                  </div>
+                  <div class="info-group">
+                    <div class="info-label">Expected Completion</div>
+                    <div class="info-value" id="ws-info-end-date">—</div>
+                  </div>
+                </div>
+
+                <div class="info-group">
+                  <div class="info-label">Location / Site Address</div>
+                  <div class="info-value" id="ws-info-location">—</div>
+                </div>
+
+                <div class="info-group">
+                  <div class="info-label">Architectural Notes &amp; Scope</div>
+                  <div class="info-value" id="ws-info-notes" style="white-space: pre-line; line-height: 1.6; color: var(--arch-ink-secondary);">
+                    No project notes entered.
+                  </div>
+                </div>
+              </div>
+
+              <!-- Right Column: Client & Financial Quick Summary -->
+              <div style="display: flex; flex-direction: column; gap: 16px;">
+                <!-- Client Card -->
+                <div class="arch-card" style="padding: 16px;">
+                  <div class="info-label">Client Details</div>
+                  <div style="display: flex; align-items: center; gap: 10px; margin: 10px 0;">
+                    <div class="client-avatar" id="ws-client-avatar" style="width: 36px; height: 36px; font-size: 13px;">RS</div>
+                    <div>
+                      <div style="font-weight: 700; font-size: 14px;" id="ws-client-card-name">Rahul Sharma</div>
+                      <div style="font-size: 11px; color: var(--arch-ink-muted);" id="ws-client-card-company">Sharma &amp; Sons</div>
+                    </div>
+                  </div>
+                  <div style="font-size: 12px; color: var(--arch-ink-secondary); display: flex; flex-direction: column; gap: 4px;">
+                    <div>📞 <span id="ws-client-card-phone">+91 98765 43210</span></div>
+                    <div>✉️ <span id="ws-client-card-email">rahul.sharma@example.com</span></div>
+                  </div>
+                </div>
+
+                <!-- Financial Quick Card -->
+                <div class="arch-card" style="padding: 16px; background: var(--arch-card-subtle);">
+                  <div class="info-label">Project Financials</div>
+                  <div style="margin-top: 8px;">
+                    <div style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 4px;">
+                      <span>Total Agreed Deal:</span>
+                      <strong id="ws-overview-fee">₹50,000</strong>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 4px; color: var(--arch-sage);">
+                      <span>Received:</span>
+                      <strong id="ws-overview-received">₹10,000</strong>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; font-size: 13px; color: var(--arch-terracotta); border-top: 1px dashed var(--arch-border); padding-top: 6px;">
+                      <span>Remaining Balance:</span>
+                      <strong id="ws-overview-balance">₹40,000</strong>
+                    </div>
+                  </div>
+                  <button class="btn btn-blueprint btn-sm" id="ws-quick-receive-payment-btn" style="width: 100%; margin-top: 12px;">
+                    + Receive Payment
+                  </button>
+                </div>
+              </div>
+
+            </div>
+          </div>
+
+          <!-- TAB 2: ACCOUNTS -->
+          <div id="ws-tab-accounts" class="ws-tab-pane">
+            <div class="accounts-summary-banner">
+              <div class="acc-stat-box">
+                <div class="acc-stat-title">Total Agreed Fee</div>
+                <div class="acc-stat-num" id="ws-acc-total-deal">₹50,000</div>
+              </div>
+              <div class="acc-stat-box">
+                <div class="acc-stat-title">Total Received</div>
+                <div class="acc-stat-num received" id="ws-acc-total-received">₹10,000</div>
+              </div>
+              <div class="acc-stat-box">
+                <div class="acc-stat-title">Outstanding Balance</div>
+                <div class="acc-stat-num balance" id="ws-acc-total-balance">₹40,000</div>
+              </div>
+            </div>
+
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
+              <h3 style="font-family: var(--font-heading); font-size: 16px; font-weight: 700;">Payment History</h3>
+              <button class="btn btn-primary btn-sm" id="btn-add-payment-modal">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                + Receive Payment
+              </button>
+            </div>
+
+            <div class="payments-table-container">
+              <table class="payments-table">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Amount</th>
+                    <th>Method</th>
+                    <th>Reference / Note</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody id="ws-payments-tbody">
+                  <!-- Payment rows injected -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- TAB 3: DRAWINGS -->
+          <div id="ws-tab-drawings" class="ws-tab-pane">
+            <div class="drawings-filter-bar">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <select id="ws-drawing-category-filter" class="filter-select">
+                  <option value="All">All Categories</option>
+                  <option value="Floor plans">Floor plans</option>
+                  <option value="Elevations">Elevations</option>
+                  <option value="Sections">Sections</option>
+                  <option value="Site plans">Site plans</option>
+                  <option value="Working drawings">Working drawings</option>
+                  <option value="Furniture layouts">Furniture layouts</option>
+                  <option value="Electrical drawings">Electrical drawings</option>
+                  <option value="Plumbing drawings">Plumbing drawings</option>
+                  <option value="Structural drawings">Structural drawings</option>
+                  <option value="Presentation drawings">Presentation drawings</option>
+                  <option value="Approval drawings">Approval drawings</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+
+              <button class="btn btn-primary btn-sm" id="btn-upload-drawing-modal">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                + Upload Drawing
+              </button>
+            </div>
+
+            <div id="ws-drawings-grid" class="drawings-grid">
+              <!-- Drawings injected here -->
+            </div>
+          </div>
+
+          <!-- TAB 4: IMAGES & SITE TIMELINE -->
+          <div id="ws-tab-images" class="ws-tab-pane">
+            <div class="images-header-bar">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <select id="ws-images-category-filter" class="filter-select">
+                  <option value="All">All Categories</option>
+                  <option value="Site">Site (Actual site photos)</option>
+                  <option value="Progress">Progress (Construction progress)</option>
+                  <option value="Design">Design (Concepts, 3D Renders)</option>
+                  <option value="Completed">Completed (Final photos)</option>
+                  <option value="Other">Other</option>
+                </select>
+
+                <!-- Toggle Chronological Timeline View -->
+                <button class="tool-btn active" id="btn-toggle-site-timeline">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                  Site Timeline
+                </button>
+              </div>
+
+              <button class="btn btn-primary btn-sm" id="btn-upload-image-modal">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                + Add Site Photo
+              </button>
+            </div>
+
+            <!-- Site Timeline Container -->
+            <div id="ws-images-timeline" class="site-timeline-container">
+              <div class="timeline-track"></div>
+              <div id="ws-timeline-entries-list">
+                <!-- Chronological entries injected here -->
+              </div>
+            </div>
+          </div>
+
+        </section>
+
+
+        <!-- ================= SECTION D: CLIENTS ================= -->
+        <section id="view-clients" class="app-section" style="display: none;">
+          <div class="section-header">
+            <div>
+              <h2 class="section-title">Clients Directory</h2>
+              <p class="section-subtitle">Manage client contact profiles and associated projects</p>
+            </div>
+            <div>
+              <button class="btn btn-primary" id="btn-add-client-modal">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                + New Client
+              </button>
+            </div>
+          </div>
+
+          <div class="filter-search-container">
+            <div class="search-input-wrapper">
+              <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <input type="text" id="client-search-input" class="search-input" placeholder="Search client by name, phone, email, or company...">
+            </div>
+          </div>
+
+          <div id="clients-cards-container" class="clients-grid">
+            <!-- Client cards injected here -->
+          </div>
+        </section>
+
+
+        <!-- ================= SECTION E: ACCOUNTS HUB ================= -->
+        <section id="view-accounts" class="app-section" style="display: none;">
+          <div class="section-header">
+            <div>
+              <h2 class="section-title">Studio Accounts &amp; Ledgers</h2>
+              <p class="section-subtitle">Total Agreed Fees → Amount Received → Remaining Balances</p>
+            </div>
+            <div>
+              <button class="btn btn-primary" id="accounts-receive-btn">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
+                + Receive Payment
+              </button>
+            </div>
+          </div>
+
+          <!-- Global Financial Banner -->
+          <div class="accounts-summary-banner">
+            <div class="acc-stat-box">
+              <div class="acc-stat-title">Total Portfolio Deal Value</div>
+              <div class="acc-stat-num" id="acc-global-deal">₹2,90,000</div>
+            </div>
+            <div class="acc-stat-box">
+              <div class="acc-stat-title">Total Collected / Received</div>
+              <div class="acc-stat-num received" id="acc-global-received">₹1,45,000</div>
+            </div>
+            <div class="acc-stat-box">
+              <div class="acc-stat-title">Total Outstanding Balance</div>
+              <div class="acc-stat-num balance" id="acc-global-balance">₹1,45,000</div>
+            </div>
+          </div>
+
+          <!-- Project Financial Breakdown Table -->
+          <h3 style="font-family: var(--font-heading); font-size: 16px; font-weight: 700; margin-bottom: 12px;">Accounts by Project</h3>
+          <div class="payments-table-container" style="margin-bottom: 24px;">
+            <table class="payments-table">
+              <thead>
+                <tr>
+                  <th>Project Name</th>
+                  <th>Client</th>
+                  <th>Project Type</th>
+                  <th>Deal Fee</th>
+                  <th>Received</th>
+                  <th>Remaining Balance</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="acc-projects-breakdown-tbody">
+                <!-- Injected dynamically -->
+              </tbody>
+            </table>
+          </div>
+
+          <!-- All Received Payments Ledger -->
+          <h3 style="font-family: var(--font-heading); font-size: 16px; font-weight: 700; margin-bottom: 12px;">Complete Payment Ledger</h3>
+          <div class="payments-table-container">
+            <table class="payments-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Project</th>
+                  <th>Client</th>
+                  <th>Amount</th>
+                  <th>Method</th>
+                  <th>Reference Note</th>
+                  <th>Delete</th>
+                </tr>
+              </thead>
+              <tbody id="acc-full-payments-tbody">
+                <!-- Injected dynamically -->
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+
+        <!-- ================= SECTION F: SETTINGS & PROJECT TYPES ================= -->
+        <section id="view-settings" class="app-section" style="display: none;">
+          <div class="section-header">
+            <div>
+              <h2 class="section-title">Settings &amp; Project Types</h2>
+              <p class="section-subtitle">Manage architectural project types and studio preferences</p>
+            </div>
+          </div>
+
+          <div class="arch-card" style="margin-bottom: 20px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+              <div>
+                <h3 style="font-family: var(--font-heading); font-size: 16px; font-weight: 700;">Project Types</h3>
+                <p style="font-size: 12px; color: var(--arch-ink-muted);">Default and custom architectural classification tags</p>
+              </div>
+              <button class="btn btn-primary btn-sm" id="btn-add-custom-type-modal">
+                + Add Project Type
+              </button>
+            </div>
+
+            <div id="settings-types-list" style="display: flex; flex-wrap: wrap; gap: 8px;">
+              <!-- Project types chips injected here -->
+            </div>
+          </div>
+
+          <div class="arch-card">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
+              <h3 style="font-family: var(--font-heading); font-size: 16px; font-weight: 700;">Studio &amp; Principal Profile</h3>
+              <button class="btn btn-secondary btn-sm" id="btn-settings-edit-profile">
+                ✏️ Edit Profile
+              </button>
+            </div>
+            <div class="form-row-2">
+              <div class="info-group">
+                <div class="info-label">Studio Name</div>
+                <div class="info-value" id="settings-studio-name">SHASWAT DESIGNS</div>
+              </div>
+              <div class="info-group">
+                <div class="info-label">Principal Architect / Engineer</div>
+                <div class="info-value" id="settings-user-name">Er. Shivansh</div>
+              </div>
+            </div>
+            <div class="form-row-2">
+              <div class="info-group">
+                <div class="info-label">Email Address</div>
+                <div class="info-value" id="settings-user-email">architect@archidesk.com</div>
+              </div>
+              <div class="info-group">
+                <div class="info-label">Professional Role</div>
+                <div class="info-value" id="settings-user-role">Principal Architect</div>
+              </div>
+            </div>
+            <div class="info-group" style="margin-top: 6px;">
+              <div class="info-label">Database Status</div>
+              <div class="info-value" style="color: var(--arch-sage); font-weight: 600;">
+                ● SQLite Relational Database Connected (node:sqlite native engine)
+              </div>
+            </div>
+          </div>
+        </section>
+
+      </main>
+
+      <!-- Bottom Mobile Navigation Bar -->
+      <nav class="bottom-nav">
+        <a class="nav-item active" data-nav="dashboard">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+          <span>Dashboard</span>
+        </a>
+        <a class="nav-item" data-nav="projects">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+          <span>Projects</span>
+        </a>
+        <a class="nav-item" data-nav="clients">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          <span>Clients</span>
+        </a>
+        <a class="nav-item" data-nav="accounts">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
+          <span>Accounts</span>
+        </a>
+        <a class="nav-item" data-nav="settings">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          <span>Settings</span>
+        </a>
+      </nav>
+
+    </div>
+  </div>
+
+
+  <!-- ================= MODALS ================= -->
+
+  <!-- Modal 1: New / Edit Project -->
+  <div id="modal-project" class="modal-backdrop">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3 class="modal-title" id="modal-project-title">Create New Project</h3>
+        <button class="modal-close-btn" data-close="modal-project">✕</button>
+      </div>
+      <form id="form-project">
+        <input type="hidden" id="proj-edit-id">
+        <div class="modal-body">
+          <div class="form-group">
+            <label class="form-label required" for="proj-name">Project Name</label>
+            <input type="text" id="proj-name" class="form-control" placeholder="e.g. Sharma Residence" required>
+          </div>
+
+          <div class="form-row-2">
+            <div class="form-group">
+              <label class="form-label required" for="proj-client">Client</label>
+              <select id="proj-client" class="form-control" required>
+                <!-- Populated dynamically -->
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label required" for="proj-type">Project Type</label>
+              <select id="proj-type" class="form-control" required>
+                <!-- Populated dynamically -->
+              </select>
+            </div>
+          </div>
+
+          <div class="form-row-2">
+            <div class="form-group">
+              <label class="form-label required" for="proj-location">Location</label>
+              <input type="text" id="proj-location" class="form-control" placeholder="e.g. Lucknow" required>
+            </div>
+            <div class="form-group">
+              <label class="form-label required" for="proj-status">Category Status</label>
+              <select id="proj-status" class="form-control" required>
+                <option value="Active">Active</option>
+                <option value="Pre-Planning">Pre-Planning</option>
+                <option value="Completed">Completed</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-row-2">
+            <div class="form-group">
+              <label class="form-label" for="proj-start-date">Start Date</label>
+              <input type="date" id="proj-start-date" class="form-control">
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="proj-end-date">Expected Completion</label>
+              <input type="date" id="proj-end-date" class="form-control">
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label required" for="proj-fee">Total Agreed Deal / Fee (₹)</label>
+            <input type="number" id="proj-fee" class="form-control" placeholder="e.g. 50000" min="0" step="any" required>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="proj-notes">Project Notes &amp; Scope</label>
+            <textarea id="proj-notes" class="form-control" rows="3" placeholder="Bioclimatic concept, client preferences, architectural specifications..."></textarea>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-close="modal-project">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="btn-save-project">Save Project</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+
+  <!-- Modal 2: New / Edit Client -->
+  <div id="modal-client" class="modal-backdrop">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3 class="modal-title" id="modal-client-title">Add New Client</h3>
+        <button class="modal-close-btn" data-close="modal-client">✕</button>
+      </div>
+      <form id="form-client">
+        <input type="hidden" id="client-edit-id">
+        <div class="modal-body">
+          <div class="form-group">
+            <label class="form-label required" for="client-name">Client Full Name</label>
+            <input type="text" id="client-name" class="form-control" placeholder="e.g. Rahul Sharma" required>
+          </div>
+
+          <div class="form-row-2">
+            <div class="form-group">
+              <label class="form-label" for="client-phone">Phone Number</label>
+              <input type="text" id="client-phone" class="form-control" placeholder="+91 98765 43210">
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="client-email">Email Address</label>
+              <input type="email" id="client-email" class="form-control" placeholder="rahul@example.com">
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="client-company">Company / Organization</label>
+            <input type="text" id="client-company" class="form-control" placeholder="e.g. Sharma & Sons Enterprises">
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="client-address">Site / Billing Address</label>
+            <input type="text" id="client-address" class="form-control" placeholder="e.g. Gomti Nagar, Lucknow">
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="client-notes">Client Notes</label>
+            <textarea id="client-notes" class="form-control" rows="2" placeholder="Design taste, meeting notes, communications..."></textarea>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-close="modal-client">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="btn-save-client">Save Client</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+
+  <!-- Modal 3: Add / Receive Payment -->
+  <div id="modal-payment" class="modal-backdrop">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3 class="modal-title">Record Payment</h3>
+        <button class="modal-close-btn" data-close="modal-payment">✕</button>
+      </div>
+      <form id="form-payment">
+        <div class="modal-body">
+          <div class="form-group">
+            <label class="form-label required" for="pay-project">Target Project</label>
+            <select id="pay-project" class="form-control" required>
+              <!-- Populated dynamically -->
+            </select>
+          </div>
+
+          <div id="pay-project-summary-box" style="padding: 10px; background: var(--arch-card-subtle); border: 1px solid var(--arch-border-light); border-radius: var(--radius-md); margin-bottom: 16px; font-size: 12px; display: none;">
+            <div style="display: flex; justify-content: space-between;">
+              <span>Agreed Fee: <strong id="pay-box-fee">₹0</strong></span>
+              <span>Received: <strong id="pay-box-received" style="color: var(--arch-sage);">₹0</strong></span>
+              <span>Current Balance: <strong id="pay-box-balance" style="color: var(--arch-terracotta);">₹0</strong></span>
+            </div>
+          </div>
+
+          <div class="form-row-2">
+            <div class="form-group">
+              <label class="form-label required" for="pay-amount">Amount Received (₹)</label>
+              <input type="number" id="pay-amount" class="form-control" placeholder="e.g. 10000" min="0.01" step="any" required>
+            </div>
+            <div class="form-group">
+              <label class="form-label required" for="pay-date">Payment Date</label>
+              <input type="date" id="pay-date" class="form-control" required>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label required" for="pay-method">Payment Method</label>
+            <select id="pay-method" class="form-control" required>
+              <option value="UPI">UPI (Google Pay, PhonePe, Paytm)</option>
+              <option value="Bank Transfer">Bank Transfer (NEFT / RTGS / IMPS)</option>
+              <option value="Cheque">Cheque</option>
+              <option value="Cash">Cash</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="pay-reference">Reference / Note</label>
+            <input type="text" id="pay-reference" class="form-control" placeholder="e.g. Advance token on concept approval / Chq #440912">
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-close="modal-payment">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="btn-save-payment">Save &amp; Recalculate Balance</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+
+  <!-- Modal 4: Upload Drawing -->
+  <div id="modal-drawing" class="modal-backdrop">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3 class="modal-title">Upload Project Drawing</h3>
+        <button class="modal-close-btn" data-close="modal-drawing">✕</button>
+      </div>
+      <form id="form-drawing">
+        <div class="modal-body">
+          <div class="form-group">
+            <label class="form-label required" for="draw-name">Drawing Title</label>
+            <input type="text" id="draw-name" class="form-control" placeholder="e.g. Ground Floor Layout Plan" required>
+          </div>
+
+          <div class="form-row-2">
+            <div class="form-group">
+              <label class="form-label" for="draw-number">Drawing Number</label>
+              <input type="text" id="draw-number" class="form-control" placeholder="e.g. ARC-SR-101">
+            </div>
+            <div class="form-group">
+              <label class="form-label required" for="draw-category">Category</label>
+              <select id="draw-category" class="form-control" required>
+                <option value="Floor plans">Floor plans</option>
+                <option value="Elevations">Elevations</option>
+                <option value="Sections">Sections</option>
+                <option value="Site plans">Site plans</option>
+                <option value="Working drawings">Working drawings</option>
+                <option value="Furniture layouts">Furniture layouts</option>
+                <option value="Electrical drawings">Electrical drawings</option>
+                <option value="Plumbing drawings">Plumbing drawings</option>
+                <option value="Structural drawings">Structural drawings</option>
+                <option value="Presentation drawings">Presentation drawings</option>
+                <option value="Approval drawings">Approval drawings</option>
+                <option value="Other">Other</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-row-2">
+            <div class="form-group">
+              <label class="form-label required" for="draw-rev-code">Initial Revision</label>
+              <input type="text" id="draw-rev-code" class="form-control" value="R00" required>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="draw-rev-note">Revision Notes</label>
+              <input type="text" id="draw-rev-note" class="form-control" placeholder="e.g. Initial concept release">
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Drawing File (PDF, DWG, DXF, PNG, JPG)</label>
+            <div class="file-dropzone" onclick="document.getElementById('draw-file-input').click()">
+              <input type="file" id="draw-file-input" style="display: none;" accept=".pdf,.dwg,.dxf,.png,.jpg,.jpeg">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--arch-ink-muted); margin-bottom: 6px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+              <div style="font-size: 13px; font-weight: 600;" id="draw-file-name-display">Click to browse drawing file</div>
+              <div style="font-size: 11px; color: var(--arch-ink-muted); margin-top: 4px;">Or leave empty to use sample architectural CAD vector</div>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="draw-desc">Drawing Description</label>
+            <textarea id="draw-desc" class="form-control" rows="2" placeholder="Room allocations, dimensions, revision notes..."></textarea>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-close="modal-drawing">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="btn-save-drawing">Upload &amp; Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+
+  <!-- Modal 5: Add Drawing Revision -->
+  <div id="modal-revision" class="modal-backdrop">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3 class="modal-title">Add Drawing Revision</h3>
+        <button class="modal-close-btn" data-close="modal-revision">✕</button>
+      </div>
+      <form id="form-revision">
+        <input type="hidden" id="rev-drawing-id">
+        <div class="modal-body">
+          <div style="margin-bottom: 14px; font-size: 13px;">
+            Drawing: <strong id="rev-drawing-title-display">Ground Floor Layout Plan</strong>
+          </div>
+
+          <div class="form-row-2">
+            <div class="form-group">
+              <label class="form-label required" for="rev-code-input">Revision Code</label>
+              <input type="text" id="rev-code-input" class="form-control" placeholder="R01, R02..." required>
+            </div>
+            <div class="form-group">
+              <label class="form-label required" for="rev-date-input">Revision Date</label>
+              <input type="date" id="rev-date-input" class="form-control" required>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label required" for="rev-note-input">Modification Summary</label>
+            <input type="text" id="rev-note-input" class="form-control" placeholder="e.g. Kitchen modified &amp; utility corridor extended" required>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Updated File (PDF, DWG, DXF, PNG, JPG)</label>
+            <div class="file-dropzone" onclick="document.getElementById('rev-file-input').click()">
+              <input type="file" id="rev-file-input" style="display: none;" accept=".pdf,.dwg,.dxf,.png,.jpg,.jpeg">
+              <div style="font-size: 13px; font-weight: 600;" id="rev-file-name-display">Click to browse revised file</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-close="modal-revision">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="btn-save-revision">Save Revision</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+
+  <!-- Modal 6: View Revision History -->
+  <div id="modal-rev-history" class="modal-backdrop">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3 class="modal-title" id="history-modal-title">Revision History</h3>
+        <button class="modal-close-btn" data-close="modal-rev-history">✕</button>
+      </div>
+      <div class="modal-body">
+        <div id="history-revisions-container" class="revision-history-list">
+          <!-- Revisions rendered dynamically -->
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-close="modal-rev-history">Close</button>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- Modal 7: Upload Site Photo / Image -->
+  <div id="modal-image" class="modal-backdrop">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3 class="modal-title">Log Site Photograph / Image</h3>
+        <button class="modal-close-btn" data-close="modal-image">✕</button>
+      </div>
+      <form id="form-image">
+        <div class="modal-body">
+          <div class="form-group">
+            <label class="form-label required" for="img-title">Image / Milestone Title</label>
+            <input type="text" id="img-title" class="form-control" placeholder="e.g. Ground Floor Columns Formwork" required>
+          </div>
+
+          <div class="form-row-2">
+            <div class="form-group">
+              <label class="form-label required" for="img-date">Date Taken</label>
+              <input type="date" id="img-date" class="form-control" required>
+            </div>
+            <div class="form-group">
+              <label class="form-label required" for="img-category">Category</label>
+              <select id="img-category" class="form-control" required>
+                <option value="Site">Site (Actual site photos)</option>
+                <option value="Progress">Progress (Construction progress)</option>
+                <option value="Design">Design (Concepts, renders)</option>
+                <option value="Completed">Completed (Final photos)</option>
+                <option value="Other">Other</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="img-location">Location / Area</label>
+            <input type="text" id="img-location" class="form-control" placeholder="e.g. North Plot Boundary / Living Room">
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Photograph File</label>
+            <div class="file-dropzone" onclick="document.getElementById('img-file-input').click()">
+              <input type="file" id="img-file-input" style="display: none;" accept="image/*">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--arch-ink-muted); margin-bottom: 6px;"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+              <div style="font-size: 13px; font-weight: 600;" id="img-file-name-display">Click to select photo</div>
+              <div style="font-size: 11px; color: var(--arch-ink-muted); margin-top: 4px;">Or leave empty to use architectural site render</div>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="img-desc">Progress Description</label>
+            <textarea id="img-desc" class="form-control" rows="2" placeholder="Concrete grade, weather conditions, inspection signoffs..."></textarea>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-close="modal-image">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="btn-save-image">Save to Timeline</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+
+  <!-- Modal 8: Lightbox Viewer for Drawings and Images -->
+  <div id="modal-lightbox" class="modal-backdrop">
+    <div class="modal-dialog lightbox-dialog">
+      <div class="modal-header">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <h3 class="modal-title" id="lightbox-title">Drawing Preview</h3>
+          <span class="badge-type" id="lightbox-badge">PDF</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <a id="lightbox-download-link" class="btn btn-secondary btn-sm" download target="_blank">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+            Download
+          </a>
+          <button class="modal-close-btn" data-close="modal-lightbox">✕</button>
+        </div>
+      </div>
+      <div class="lightbox-viewer">
+        <img id="lightbox-img" src="" alt="Architectural preview">
+      </div>
+      <div style="padding: 12px 20px; font-size: 12px; background: var(--arch-paper); border-top: 1px solid var(--arch-border); color: var(--arch-ink-secondary);" id="lightbox-meta">
+        ARC-SR-101 • Scale 1:100 @ A3 • Ar. Ishan Sharma
+      </div>
+    </div>
+  </div>
+
+
+  <!-- Modal 9: Add Project Type -->
+  <div id="modal-type" class="modal-backdrop">
+    <div class="modal-dialog" style="max-width: 400px;">
+      <div class="modal-header">
+        <h3 class="modal-title">Add Custom Project Type</h3>
+        <button class="modal-close-btn" data-close="modal-type">✕</button>
+      </div>
+      <form id="form-type">
+        <div class="modal-body">
+          <div class="form-group">
+            <label class="form-label required" for="type-name-input">Type Name</label>
+            <input type="text" id="type-name-input" class="form-control" placeholder="e.g. Heritage Conservation" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="type-color-input">Badge Accent Color</label>
+            <input type="color" id="type-color-input" value="#2563eb" style="width: 100%; height: 40px; border-radius: 6px; border: 1px solid var(--arch-border); cursor: pointer;">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-close="modal-type">Cancel</button>
+          <button type="submit" class="btn btn-primary">Add Project Type</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal 10: Edit Studio & Principal Profile -->
+  <div id="modal-profile" class="modal-backdrop">
+    <div class="modal-dialog" style="max-width: 480px;">
+      <div class="modal-header">
+        <h3 class="modal-title">Edit Principal Architect &amp; Studio Profile</h3>
+        <button class="modal-close-btn" data-close="modal-profile">✕</button>
+      </div>
+      <form id="form-profile">
+        <div class="modal-body">
+          <div class="form-group">
+            <label class="form-label required" for="profile-name">Principal Architect / Engineer Name</label>
+            <input type="text" id="profile-name" class="form-control" placeholder="e.g. Er. Shivansh" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label required" for="profile-studio">Studio / Firm Name</label>
+            <input type="text" id="profile-studio" class="form-control" placeholder="SHASWAT DESIGNS" required value="SHASWAT DESIGNS">
+          </div>
+          <div class="form-row-2">
+            <div class="form-group">
+              <label class="form-label required" for="profile-email">Email Address</label>
+              <input type="email" id="profile-email" class="form-control" required>
+            </div>
+            <div class="form-group">
+              <label class="form-label required" for="profile-role">Professional Title / Role</label>
+              <input type="text" id="profile-role" class="form-control" placeholder="Principal Architect" required value="Principal Architect">
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-close="modal-profile">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="btn-save-profile">Save Changes</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div class="toast-container" id="toast-container"></div>
+
+  <!-- Application Controller -->
+  <script src="js/app.js"></script>
+</body>
+</html>

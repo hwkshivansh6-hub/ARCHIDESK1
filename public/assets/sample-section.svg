@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600" width="100%" height="100%">
+  <defs>
+    <pattern id="concreteHatch" width="10" height="10" patternUnits="userSpaceOnUse">
+      <circle cx="2" cy="3" r="0.8" fill="#475569"/>
+      <circle cx="7" cy="8" r="0.8" fill="#475569"/>
+      <path d="M 4 2 L 6 4" stroke="#475569" stroke-width="0.5"/>
+    </pattern>
+    <pattern id="earthHatch" width="16" height="16" patternUnits="userSpaceOnUse">
+      <line x1="0" y1="16" x2="16" y2="0" stroke="#94a3b8" stroke-width="0.7"/>
+    </pattern>
+  </defs>
+
+  <rect width="800" height="600" fill="#f8fafc"/>
+  
+  <!-- Sub-grade earth -->
+  <rect x="0" y="460" width="800" height="140" fill="url(#earthHatch)"/>
+  <line x1="0" y1="460" x2="800" y2="460" stroke="#0f172a" stroke-width="3"/>
+  <text x="30" y="485" fill="#475569" font-family="'Courier New'" font-size="11" font-weight="bold">GROUND DATUM ± 0.00 M</text>
+
+  <!-- Foundation Raft -->
+  <rect x="150" y="460" width="500" height="35" fill="url(#concreteHatch)" stroke="#0f172a" stroke-width="2.5"/>
+  <text x="360" y="482" fill="#0f172a" font-family="'Courier New'" font-size="10" font-weight="bold">RAFT SLAB 450mm</text>
+
+  <!-- Ground Floor Slab & Beams -->
+  <rect x="150" y="320" width="500" height="18" fill="url(#concreteHatch)" stroke="#0f172a" stroke-width="2.5"/>
+  <!-- Second Floor Slab -->
+  <rect x="150" y="190" width="500" height="18" fill="url(#concreteHatch)" stroke="#0f172a" stroke-width="2.5"/>
+  <!-- Roof Terrace Slab -->
+  <rect x="150" y="80" width="500" height="18" fill="url(#concreteHatch)" stroke="#0f172a" stroke-width="2.5"/>
+
+  <!-- Skylight Lightwell Atrium Cutout -->
+  <rect x="360" y="80" width="160" height="240" fill="#e0f2fe" fill-opacity="0.4" stroke="#0284c7" stroke-width="1.5" stroke-dasharray="4 4"/>
+  <text x="375" y="150" fill="#0284c7" font-family="'Courier New'" font-size="11" font-weight="bold">DOUBLE-HEIGHT VOID</text>
+  <text x="385" y="170" fill="#0369a1" font-family="'Courier New'" font-size="9">Clear Height: 6.80m</text>
+
+  <!-- Glazed Skylight at Top -->
+  <polygon points="360,80 440,50 520,80" fill="#bae6fd" stroke="#0284c7" stroke-width="2"/>
+  <line x1="440" y1="50" x2="440" y2="80" stroke="#0284c7" stroke-width="1.5"/>
+
+  <!-- Structural Columns -->
+  <rect x="160" y="98" width="22" height="362" fill="url(#concreteHatch)" stroke="#0f172a" stroke-width="2"/>
+  <rect x="340" y="98" width="22" height="362" fill="url(#concreteHatch)" stroke="#0f172a" stroke-width="2"/>
+  <rect x="520" y="98" width="22" height="362" fill="url(#concreteHatch)" stroke="#0f172a" stroke-width="2"/>
+  <rect x="620" y="98" width="22" height="362" fill="url(#concreteHatch)" stroke="#0f172a" stroke-width="2"/>
+
+  <!-- Staircase profile in section -->
+  <path d="M 210 320 L 230 320 L 230 300 L 250 300 L 250 280 L 270 280 L 270 260 L 290 260 L 290 240 L 310 240 L 310 220 L 330 220 L 330 190" fill="none" stroke="#0f172a" stroke-width="3"/>
+  <line x1="210" y1="335" x2="330" y2="205" stroke="#0f172a" stroke-width="4"/>
+
+  <!-- Title Block -->
+  <rect x="40" y="515" width="280" height="65" fill="#ffffff" stroke="#1e293b" stroke-width="1.5"/>
+  <text x="50" y="535" fill="#64748b" font-family="'Segoe UI'" font-size="10" font-weight="bold">ATELIER ARCHITECTURE STUDIO</text>
+  <text x="50" y="552" fill="#0f172a" font-family="'Segoe UI'" font-size="12" font-weight="bold">TRANSVERSE SECTION A-A</text>
+  <text x="50" y="568" fill="#2563eb" font-family="'Courier New'" font-size="10">DRG: ARC-SR-301 | REV: R00 | SCALE 1:100</text>
+</svg>
