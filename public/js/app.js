@@ -102,10 +102,106 @@ async function apiRequest(endpoint, options = {}) {
   }
 }
 
+// ================= PWA & MOBILE APP INSTALLATION =================
+let deferredInstallPrompt = null;
+
+// Register Service Worker early for offline capability & mobile installability
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js')
+      .then(reg => {
+        console.log('[PWA] Service Worker registered with scope:', reg.scope);
+      })
+      .catch(err => {
+        console.warn('[PWA] Service Worker registration failed:', err);
+      });
+  });
+}
+
+function initPWA() {
+  const isStandalone = window.matchMedia('(display-mode: standalone)').matches || 
+                       window.navigator.standalone === true ||
+                       document.referrer.includes('android-app://');
+
+  const banner = document.getElementById('pwa-install-banner');
+  const btnHeaderInstall = document.getElementById('btn-header-install');
+  const btnLoginInstall = document.getElementById('btn-login-install-app');
+  const btnAuthInstall = document.getElementById('btn-auth-install-app');
+
+  if (isStandalone) {
+    if (banner) banner.style.display = 'none';
+    if (btnHeaderInstall) btnHeaderInstall.style.display = 'none';
+    if (btnLoginInstall) btnLoginInstall.style.display = 'none';
+    if (btnAuthInstall) btnAuthInstall.style.display = 'none';
+    console.log('[PWA] Running in standalone mobile mode');
+    return;
+  }
+
+  // Intercept the mobile install prompt
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredInstallPrompt = e;
+    console.log('[PWA] Mobile install prompt ready');
+    if (banner) banner.style.display = 'flex';
+    if (btnHeaderInstall) btnHeaderInstall.style.display = 'inline-flex';
+    if (btnLoginInstall) btnLoginInstall.style.display = 'inline-flex';
+    if (btnAuthInstall) btnAuthInstall.style.display = 'inline-flex';
+  });
+
+  window.addEventListener('appinstalled', () => {
+    deferredInstallPrompt = null;
+    if (banner) banner.style.display = 'none';
+    if (btnHeaderInstall) btnHeaderInstall.style.display = 'none';
+    if (btnLoginInstall) btnLoginInstall.style.display = 'none';
+    if (btnAuthInstall) btnAuthInstall.style.display = 'none';
+    showToast('SHASWAT DESIGNS installed on your mobile home screen!', 'success');
+  });
+
+  async function handleInstallTrigger() {
+    if (deferredInstallPrompt) {
+      deferredInstallPrompt.prompt();
+      const { outcome } = await deferredInstallPrompt.userChoice;
+      if (outcome === 'accepted') {
+        showToast('Installing SHASWAT DESIGNS app...', 'success');
+      }
+      deferredInstallPrompt = null;
+      if (banner) banner.style.display = 'none';
+      return;
+    }
+
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+    if (isIOS) {
+      alert('📱 Install on iPhone / iPad (Safari):\n\n1. Tap the Share button (⎋) in the Safari toolbar.\n2. Scroll down and tap "Add to Home Screen" (⊞).\n3. Tap "Add" at the top-right.\n\nThe app will open full-screen directly from your home screen!');
+      return;
+    }
+
+    alert('📱 Install on Mobile / Android:\n\n1. Open your browser menu (the three dots ⋮ at the top right).\n2. Tap "Install app" or "Add to Home screen".\n3. Tap "Install" to confirm.\n\nSHASWAT DESIGNS will now appear alongside your regular phone apps!');
+  }
+
+  const btnPwaInstall = document.getElementById('btn-pwa-install');
+  if (btnPwaInstall) btnPwaInstall.addEventListener('click', handleInstallTrigger);
+
+  if (btnHeaderInstall) btnHeaderInstall.addEventListener('click', handleInstallTrigger);
+
+  const btnSettingsInstall = document.getElementById('btn-settings-install-pwa');
+  if (btnSettingsInstall) btnSettingsInstall.addEventListener('click', handleInstallTrigger);
+
+  if (btnLoginInstall) btnLoginInstall.addEventListener('click', handleInstallTrigger);
+  if (btnAuthInstall) btnAuthInstall.addEventListener('click', handleInstallTrigger);
+
+  const btnDismiss = document.getElementById('btn-pwa-dismiss');
+  if (btnDismiss) {
+    btnDismiss.addEventListener('click', () => {
+      if (banner) banner.style.display = 'none';
+    });
+  }
+}
+
 // ================= INITIALIZATION & AUTH =================
 document.addEventListener('DOMContentLoaded', async () => {
   initEventListeners();
   initModals();
+  initPWA();
 
   if (state.token) {
     try {
