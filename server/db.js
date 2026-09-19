@@ -128,6 +128,37 @@ function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_images_project ON project_images(project_id);
   `);
 
+  // Schema upgrades for Google Authentication & Real-Time User Data Sync
+  try {
+    db.exec("ALTER TABLE users ADD COLUMN google_id TEXT;");
+  } catch (e) {}
+  try {
+    db.exec("ALTER TABLE users ADD COLUMN avatar_url TEXT;");
+  } catch (e) {}
+  try {
+    db.exec("ALTER TABLE users ADD COLUMN auth_provider TEXT DEFAULT 'local';");
+  } catch (e) {}
+  try {
+    db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google_id ON users(google_id) WHERE google_id IS NOT NULL;");
+  } catch (e) {}
+
+  try {
+    db.exec("ALTER TABLE clients ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE;");
+  } catch (e) {}
+  try {
+    db.exec("ALTER TABLE projects ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE;");
+  } catch (e) {}
+  try {
+    db.exec("CREATE INDEX IF NOT EXISTS idx_clients_user ON clients(user_id);");
+    db.exec("CREATE INDEX IF NOT EXISTS idx_projects_user ON projects(user_id);");
+  } catch (e) {}
+
+  // Backfill existing demo data to default studio user (user_id = 1)
+  try {
+    db.exec("UPDATE clients SET user_id = 1 WHERE user_id IS NULL;");
+    db.exec("UPDATE projects SET user_id = 1 WHERE user_id IS NULL;");
+  } catch (e) {}
+
   seedDefaultData();
 }
 
@@ -426,13 +457,59 @@ const queries = {
     return db.prepare('SELECT * FROM users WHERE email = ?').get(email);
   },
   getUserById(id) {
-    return db.prepare('SELECT id, email, name, studio_name, role, created_at FROM users WHERE id = ?').get(id);
+    return db.prepare('SELECT id, email, name, studio_name, role, google_id, avatar_url, auth_provider, created_at FROM users WHERE id = ?').get(id);
+  },
+  getUserByGoogleId(googleId) {
+    return db.prepare('SELECT id, email, name, studio_name, role, google_id, avatar_url, auth_provider, created_at FROM users WHERE google_id = ?').get(googleId);
+  },
+  createOrUpdateGoogleUser({ googleId, email, name, avatarUrl, studioName, role }) {
+    const cleanEmail = (email || '').trim().toLowerCase();
+    
+    // 1. Check by google_id
+    let user = db.prepare('SELECT * FROM users WHERE google_id = ?').get(googleId);
+    if (user) {
+      db.prepare(`
+        UPDATE users
+        SET name = COALESCE(?, name),
+            avatar_url = COALESCE(?, avatar_url),
+            auth_provider = 'google'
+        WHERE id = ?
+      `).run(name ? name.trim() : user.name, avatarUrl || user.avatar_url, user.id);
+      return db.prepare('SELECT id, email, name, studio_name, role, google_id, avatar_url, auth_provider, created_at FROM users WHERE id = ?').get(user.id);
+    }
+
+    // 2. Check by email
+    user = db.prepare('SELECT * FROM users WHERE email = ?').get(cleanEmail);
+    if (user) {
+      db.prepare(`
+        UPDATE users
+        SET google_id = ?,
+            name = COALESCE(?, name),
+            avatar_url = COALESCE(?, avatar_url),
+            auth_provider = 'google'
+        WHERE id = ?
+      `).run(googleId, name ? name.trim() : user.name, avatarUrl || user.avatar_url, user.id);
+      return db.prepare('SELECT id, email, name, studio_name, role, google_id, avatar_url, auth_provider, created_at FROM users WHERE id = ?').get(user.id);
+    }
+
+    // 3. Insert new Google user
+    const dummyHash = hashPassword(crypto.randomBytes(24).toString('hex'));
+    const finalName = name ? name.trim() : 'Architect';
+    const finalStudio = studioName ? studioName.trim() : `${finalName}'s Studio`;
+    const finalRole = role ? role.trim() : 'Principal Architect';
+
+    const res = db.prepare(`
+      INSERT INTO users (email, password_hash, name, studio_name, role, google_id, avatar_url, auth_provider)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'google')
+    `).run(cleanEmail, dummyHash, finalName, finalStudio, finalRole, googleId, avatarUrl || null);
+
+    return db.prepare('SELECT id, email, name, studio_name, role, google_id, avatar_url, auth_provider, created_at FROM users WHERE id = ?').get(res.lastInsertRowid);
   },
   createUser(email, password, name = 'Er. Shivansh', studioName = 'SHASWAT DESIGNS', role = 'Principal Architect') {
     const hash = hashPassword(password);
     const stmt = db.prepare(`
-      INSERT INTO users (email, password_hash, name, studio_name, role)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO users (email, password_hash, name, studio_name, role, auth_provider)
+      VALUES (?, ?, ?, ?, ?, 'local')
     `);
     const res = stmt.run(email.trim().toLowerCase(), hash, name.trim(), studioName.trim(), role.trim());
     return res.lastInsertRowid;
@@ -454,7 +531,7 @@ const queries = {
   },
   getSession(token) {
     const session = db.prepare(`
-      SELECT s.*, u.id as user_id, u.email, u.name, u.studio_name, u.role
+      SELECT s.*, u.id as user_id, u.email, u.name, u.studio_name, u.role, u.google_id, u.avatar_url, u.auth_provider
       FROM sessions s
       JOIN users u ON s.user_id = u.id
       WHERE s.token = ? AND datetime(s.expires_at) > datetime('now')
@@ -496,8 +573,8 @@ const queries = {
   },
 
   // Clients
-  getClients() {
-    return db.prepare(`
+  getClients(userId = null) {
+    let sql = `
       SELECT c.*,
         COUNT(DISTINCT p.id) as total_projects,
         COALESCE(SUM(p.total_fee), 0) as total_deal_amount,
@@ -506,9 +583,17 @@ const queries = {
       FROM clients c
       LEFT JOIN projects p ON c.id = p.client_id
       LEFT JOIN payments pmt ON p.id = pmt.project_id
+    `;
+    const params = [];
+    if (userId !== null && userId !== undefined) {
+      sql += ' WHERE (c.user_id = ? OR c.user_id IS NULL)';
+      params.push(userId);
+    }
+    sql += `
       GROUP BY c.id
       ORDER BY c.name ASC
-    `).all();
+    `;
+    return db.prepare(sql).all(...params);
   },
   getClientById(id) {
     const client = db.prepare('SELECT * FROM clients WHERE id = ?').get(id);
@@ -526,12 +611,12 @@ const queries = {
     `).all(id);
     return { ...client, projects };
   },
-  createClient(name, phone, email, address, company_name, notes) {
+  createClient(name, phone, email, address, company_name, notes, userId = null) {
     const stmt = db.prepare(`
-      INSERT INTO clients (name, phone, email, address, company_name, notes)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO clients (name, phone, email, address, company_name, notes, user_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
     `);
-    return stmt.run(name, phone || null, email || null, address || null, company_name || null, notes || null);
+    return stmt.run(name, phone || null, email || null, address || null, company_name || null, notes || null, userId || 1);
   },
   updateClient(id, name, phone, email, address, company_name, notes) {
     const stmt = db.prepare(`
@@ -567,6 +652,10 @@ const queries = {
     `;
     const params = [];
 
+    if (filters.user_id !== undefined && filters.user_id !== null) {
+      sql += ' AND (p.user_id = ? OR p.user_id IS NULL)';
+      params.push(filters.user_id);
+    }
     if (filters.status) {
       sql += ' AND p.status = ?';
       params.push(filters.status);
@@ -620,12 +709,12 @@ const queries = {
 
     return project;
   },
-  createProject(clientId, projectTypeId, name, location, status, startDate, completionDate, totalFee, notes) {
+  createProject(clientId, projectTypeId, name, location, status, startDate, completionDate, totalFee, notes, userId = null) {
     const stmt = db.prepare(`
-      INSERT INTO projects (client_id, project_type_id, name, location, status, start_date, expected_completion_date, total_fee, notes)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO projects (client_id, project_type_id, name, location, status, start_date, expected_completion_date, total_fee, notes, user_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    return stmt.run(clientId, projectTypeId, name, location, status || 'Active', startDate || null, completionDate || null, totalFee || 0, notes || null);
+    return stmt.run(clientId, projectTypeId, name, location, status || 'Active', startDate || null, completionDate || null, totalFee || 0, notes || null, userId || 1);
   },
   updateProject(id, clientId, projectTypeId, name, location, status, startDate, completionDate, totalFee, notes) {
     const stmt = db.prepare(`
@@ -865,24 +954,45 @@ const queries = {
   },
 
   // Dashboard Summary
-  getDashboardStats() {
-    const active = db.prepare("SELECT COUNT(*) as c FROM projects WHERE status = 'Active'").get().c;
-    const completed = db.prepare("SELECT COUNT(*) as c FROM projects WHERE status = 'Completed'").get().c;
-    const prePlanning = db.prepare("SELECT COUNT(*) as c FROM projects WHERE status = 'Pre-Planning'").get().c;
-    const totalClients = db.prepare('SELECT COUNT(*) as c FROM clients').get().c;
+  getDashboardStats(userId = null) {
+    let pUserWhere = "";
+    let cUserWhere = "";
+    const pParams = [];
+    const cParams = [];
+    if (userId !== null && userId !== undefined) {
+      pUserWhere = " AND (user_id = ? OR user_id IS NULL)";
+      cUserWhere = " WHERE (user_id = ? OR user_id IS NULL)";
+      pParams.push(userId);
+      cParams.push(userId);
+    }
 
-    const totals = db.prepare(`
-      SELECT
-        COALESCE(SUM(p.total_fee), 0) as total_deal,
-        COALESCE((SELECT SUM(amount) FROM payments), 0) as total_received
-      FROM projects p
-    `).get();
+    const active = db.prepare(`SELECT COUNT(*) as c FROM projects WHERE status = 'Active'${pUserWhere}`).get(...pParams).c;
+    const completed = db.prepare(`SELECT COUNT(*) as c FROM projects WHERE status = 'Completed'${pUserWhere}`).get(...pParams).c;
+    const prePlanning = db.prepare(`SELECT COUNT(*) as c FROM projects WHERE status = 'Pre-Planning'${pUserWhere}`).get(...pParams).c;
+    const totalClients = db.prepare(`SELECT COUNT(*) as c FROM clients${cUserWhere}`).get(...cParams).c;
 
-    const totalDeal = totals.total_deal;
-    const totalReceived = totals.total_received;
+    const totalsSql = (userId !== null && userId !== undefined)
+      ? `
+        SELECT
+          COALESCE(SUM(p.total_fee), 0) as total_deal,
+          COALESCE((SELECT SUM(amount) FROM payments WHERE project_id IN (SELECT id FROM projects WHERE user_id = ? OR user_id IS NULL)), 0) as total_received
+        FROM projects p
+        WHERE (p.user_id = ? OR p.user_id IS NULL)
+      `
+      : `
+        SELECT
+          COALESCE(SUM(p.total_fee), 0) as total_deal,
+          COALESCE((SELECT SUM(amount) FROM payments), 0) as total_received
+        FROM projects p
+      `;
+    const totalsParams = (userId !== null && userId !== undefined) ? [userId, userId] : [];
+    const totals = db.prepare(totalsSql).get(...totalsParams);
+
+    const totalDeal = totals ? totals.total_deal : 0;
+    const totalReceived = totals ? totals.total_received : 0;
     const totalBalance = totalDeal - totalReceived;
 
-    const recentProjects = db.prepare(`
+    let recentProjectsSql = `
       SELECT p.*, c.name as client_name, pt.name as project_type_name, pt.badge_color,
              COALESCE(SUM(pmt.amount), 0) as received_amount,
              (p.total_fee - COALESCE(SUM(pmt.amount), 0)) as balance_amount
@@ -890,19 +1000,35 @@ const queries = {
       JOIN clients c ON p.client_id = c.id
       JOIN project_types pt ON p.project_type_id = pt.id
       LEFT JOIN payments pmt ON p.id = pmt.project_id
+    `;
+    const rpParams = [];
+    if (userId !== null && userId !== undefined) {
+      recentProjectsSql += ` WHERE (p.user_id = ? OR p.user_id IS NULL)`;
+      rpParams.push(userId);
+    }
+    recentProjectsSql += `
       GROUP BY p.id
       ORDER BY p.updated_at DESC
       LIMIT 4
-    `).all();
+    `;
+    const recentProjects = db.prepare(recentProjectsSql).all(...rpParams);
 
-    const recentPayments = db.prepare(`
+    let recentPaymentsSql = `
       SELECT pmt.*, p.name as project_name, c.name as client_name
       FROM payments pmt
       JOIN projects p ON pmt.project_id = p.id
       JOIN clients c ON pmt.client_id = c.id
+    `;
+    const rpayParams = [];
+    if (userId !== null && userId !== undefined) {
+      recentPaymentsSql += ` WHERE (p.user_id = ? OR p.user_id IS NULL)`;
+      rpayParams.push(userId);
+    }
+    recentPaymentsSql += `
       ORDER BY pmt.payment_date DESC, pmt.id DESC
       LIMIT 4
-    `).all();
+    `;
+    const recentPayments = db.prepare(recentPaymentsSql).all(...rpayParams);
 
     return {
       projects_counts: {

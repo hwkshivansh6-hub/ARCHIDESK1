@@ -85,7 +85,7 @@ async function apiRequest(endpoint, options = {}) {
 
     if (res.status === 401) {
       // Only logout if this was an authenticated API request, NOT during login or registration
-      if (!endpoint.startsWith('/auth/login') && !endpoint.startsWith('/auth/register')) {
+      if (!endpoint.startsWith('/auth/login') && !endpoint.startsWith('/auth/register') && !endpoint.startsWith('/auth/google')) {
         logout();
         throw new Error('Session expired. Please log in again.');
       }
@@ -241,6 +241,19 @@ function updateUserDisplay() {
     // Update personalized engineer greeting
     updateGreeting();
 
+    // Update avatar if present or show Google badge
+    const brandMark = document.getElementById('app-brand-mark');
+    if (brandMark) {
+      if (state.user.avatar_url) {
+        brandMark.innerHTML = `<img src="${state.user.avatar_url}" alt="${state.user.name || 'Architect'}" class="user-avatar-img"><span class="google-sync-dot" title="Google Real-Time Sync Active"></span>`;
+      } else if (state.user.google_id) {
+        const initial = (state.user.name || 'G').charAt(0).toUpperCase();
+        brandMark.innerHTML = `<span class="avatar-initials">${initial}</span><span class="google-sync-dot" title="Google Real-Time Sync Active"></span>`;
+      } else {
+        brandMark.innerHTML = '📐';
+      }
+    }
+
     // Update settings profile card
     const sStudio = document.getElementById('settings-studio-name');
     const sName = document.getElementById('settings-user-name');
@@ -250,6 +263,40 @@ function updateUserDisplay() {
     if (sName) sName.textContent = userName;
     if (sEmail) sEmail.textContent = state.user.email || '';
     if (sRole) sRole.textContent = role;
+
+    // Update settings Google sync status row
+    const sGoogle = document.getElementById('settings-google-sync-status');
+    if (sGoogle) {
+      if (state.user.google_id) {
+        sGoogle.innerHTML = `
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;">
+            <span style="color: #1a73e8; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; font-size: 12px;">
+              <svg class="google-icon" viewBox="0 0 24 24" width="14" height="14"><path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.66-5.17 3.66-9.17z"/><path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.33 24 12 24z"/><path fill="#FBBC05" d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.16 0 9.97 0 12s.45 3.84 1.25 5.42l4.03-3.15z"/><path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z"/></svg>
+              Google ID Linked (${state.user.google_id.substring(0, 18)}...)
+            </span>
+            <span class="badge" style="background: rgba(52, 168, 83, 0.15); color: #1e7e34; border: 1px solid rgba(52, 168, 83, 0.3); font-size: 11px;">● Real-Time Sync Active</span>
+          </div>
+        `;
+      } else {
+        sGoogle.innerHTML = `
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;">
+            <span style="color: var(--arch-ink-muted); font-size: 12px;">Not connected to Google</span>
+            <button class="btn btn-secondary btn-sm" id="btn-settings-connect-google" style="font-size: 11px; padding: 4px 10px;">
+              ⚡ Connect Google ID
+            </button>
+          </div>
+        `;
+        const btnConn = document.getElementById('btn-settings-connect-google');
+        if (btnConn) {
+          btnConn.addEventListener('click', (e) => {
+            e.preventDefault();
+            const emailInput = document.getElementById('google-input-email');
+            if (emailInput && state.user.email) emailInput.value = state.user.email;
+            openModal('modal-google-auth');
+          });
+        }
+      }
+    }
   }
 }
 
@@ -281,9 +328,40 @@ function logout() {
   sessionStorage.removeItem('archidesk_token');
   state.token = null;
   state.user = null;
+  const brandMark = document.getElementById('app-brand-mark');
+  if (brandMark) brandMark.innerHTML = '📐';
   showAuth();
   showToast('Logged out successfully', 'success');
 }
+
+// ================= GOOGLE AUTHENTICATION & REAL-TIME SYNC =================
+async function authenticateWithGoogle(payload) {
+  try {
+    showToast('Connecting and syncing with Google...', 'info');
+    const res = await apiRequest('/auth/google', {
+      method: 'POST',
+      body: payload
+    });
+
+    state.token = res.token;
+    state.user = res.user;
+    localStorage.setItem('archidesk_token', res.token);
+
+    closeModal('modal-google-auth');
+    showToast(`Google Sync Active: Welcome, ${res.user.name}!`, 'success');
+    showApp();
+  } catch (err) {
+    showToast(err.message || 'Google authentication failed', 'error');
+  }
+}
+
+// Global Google Identity Services (GSI) Callback
+window.handleGoogleCredentialResponse = function(response) {
+  if (response && response.credential) {
+    authenticateWithGoogle({ credential: response.credential });
+  }
+};
+
 
 // ================= LOAD DATA =================
 async function loadInitialData() {
@@ -1476,6 +1554,49 @@ function initEventListeners() {
       showToast(err.message, 'error');
     }
   });
+
+  // Google Sign-In / Register Buttons
+  const btnGoogleSignin = document.getElementById('btn-google-signin');
+  if (btnGoogleSignin) {
+    btnGoogleSignin.addEventListener('click', () => {
+      const emailInput = document.getElementById('google-input-email');
+      const loginEmail = document.getElementById('login-email').value.trim();
+      if (emailInput && loginEmail && loginEmail !== 'architect@archidesk.com') {
+        emailInput.value = loginEmail;
+      }
+      openModal('modal-google-auth');
+    });
+  }
+
+  const btnGoogleRegister = document.getElementById('btn-google-register');
+  if (btnGoogleRegister) {
+    btnGoogleRegister.addEventListener('click', () => {
+      const emailInput = document.getElementById('google-input-email');
+      const nameInput = document.getElementById('google-input-name');
+      const studioInput = document.getElementById('google-input-studio');
+      const regEmail = document.getElementById('reg-email').value.trim();
+      const regName = document.getElementById('reg-name').value.trim();
+      const regStudio = document.getElementById('reg-studio').value.trim();
+      if (emailInput && regEmail) emailInput.value = regEmail;
+      if (nameInput && regName) nameInput.value = regName;
+      if (studioInput && regStudio) studioInput.value = regStudio;
+      openModal('modal-google-auth');
+    });
+  }
+
+  // Google Sync Form Submit
+  const formGoogleAuth = document.getElementById('form-google-auth');
+  if (formGoogleAuth) {
+    formGoogleAuth.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const email = document.getElementById('google-input-email').value.trim();
+      const name = document.getElementById('google-input-name').value.trim();
+      const studio_name = document.getElementById('google-input-studio').value.trim();
+      const role = document.getElementById('google-input-role').value.trim();
+
+      await authenticateWithGoogle({ email, name, studio_name, role });
+    });
+  }
 
   // Auth Tabs Switcher
   const tabLogin = document.getElementById('tab-auth-login');

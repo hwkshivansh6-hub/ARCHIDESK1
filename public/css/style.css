@@ -1923,3 +1923,102 @@ body.mode-mobile-frame .dash-splits {
   font-weight: 700;
   margin-bottom: 16px;
 }
+
+/* Google Sign-In & Auth Styles */
+.auth-divider {
+  display: flex;
+  align-items: center;
+  text-align: center;
+  margin: 18px 0 14px;
+  color: var(--arch-ink-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  font-weight: 500;
+}
+
+.auth-divider::before,
+.auth-divider::after {
+  content: '';
+  flex: 1;
+  border-bottom: 1px solid var(--arch-border);
+}
+
+.auth-divider span {
+  padding: 0 10px;
+}
+
+.btn-google {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 11px 16px;
+  background: #ffffff;
+  color: #3c4043;
+  border: 1px solid #dadce0;
+  border-radius: var(--radius-md);
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 1px 3px rgba(60, 64, 67, 0.08);
+}
+
+.btn-google:hover {
+  background: #f8fafd;
+  border-color: #c2c7d0;
+  box-shadow: 0 2px 6px rgba(60, 64, 67, 0.15);
+  transform: translateY(-1px);
+}
+
+.btn-google:active {
+  background: #f1f3f4;
+  transform: translateY(0);
+}
+
+.btn-google .google-icon {
+  flex-shrink: 0;
+}
+
+/* User Avatar & Google Live Sync Dot */
+.brand-mark {
+  position: relative;
+  overflow: visible;
+}
+
+.user-avatar-img {
+  width: 100%;
+  height: 100%;
+  border-radius: var(--radius-md);
+  object-fit: cover;
+}
+
+.avatar-initials {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 18px;
+  color: #fff;
+}
+
+.google-sync-dot {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  width: 11px;
+  height: 11px;
+  background: #34A853;
+  border: 2px solid #ffffff;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(52, 168, 83, 0.3);
+  animation: pulse-sync 2.5s infinite;
+}
+
+@keyframes pulse-sync {
+  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(52, 168, 83, 0.6); }
+  70% { transform: scale(1.05); box-shadow: 0 0 0 5px rgba(52, 168, 83, 0); }
+  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(52, 168, 83, 0); }
+}
+

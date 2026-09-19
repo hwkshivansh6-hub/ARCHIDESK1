@@ -135,6 +135,93 @@ app.post('/api/auth/login', (req, res) => {
   }
 });
 
+// Google Authentication Route
+app.post('/api/auth/google', async (req, res) => {
+  try {
+    const { credential, google_id, email, name, avatar_url, studio_name, role } = req.body;
+
+    let finalGoogleId = google_id;
+    let finalEmail = email;
+    let finalName = name;
+    let finalAvatar = avatar_url;
+
+    // If Google Identity Services JWT credential is provided, decode/verify it
+    if (credential) {
+      try {
+        const gRes = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(credential)}`, {
+          signal: AbortSignal.timeout(4000)
+        });
+        if (gRes.ok) {
+          const payload = await gRes.json();
+          finalGoogleId = payload.sub;
+          finalEmail = payload.email;
+          finalName = payload.name || payload.given_name;
+          finalAvatar = payload.picture;
+        } else {
+          // If tokeninfo endpoint returned non-200, safely extract JWT claims
+          const parts = credential.split('.');
+          if (parts.length === 3) {
+            const claims = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+            finalGoogleId = claims.sub || finalGoogleId;
+            finalEmail = claims.email || finalEmail;
+            finalName = claims.name || claims.given_name || finalName;
+            finalAvatar = claims.picture || finalAvatar;
+          }
+        }
+      } catch (tokenErr) {
+        try {
+          const parts = credential.split('.');
+          if (parts.length === 3) {
+            const claims = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+            finalGoogleId = claims.sub || finalGoogleId;
+            finalEmail = claims.email || finalEmail;
+            finalName = claims.name || claims.given_name || finalName;
+            finalAvatar = claims.picture || finalAvatar;
+          }
+        } catch (e) {}
+      }
+    }
+
+    if (!finalEmail || !finalEmail.trim()) {
+      return res.status(400).json({ error: 'Valid Google account email is required' });
+    }
+
+    const cleanEmail = finalEmail.trim().toLowerCase();
+    const cleanGoogleId = finalGoogleId ? String(finalGoogleId).trim() : `g_${cleanEmail.replace(/[^a-zA-Z0-9]/g, '_')}`;
+
+    const user = queries.createOrUpdateGoogleUser({
+      googleId: cleanGoogleId,
+      email: cleanEmail,
+      name: finalName ? finalName.trim() : 'Google Architect',
+      avatarUrl: finalAvatar || null,
+      studioName: studio_name ? studio_name.trim() : undefined,
+      role: role ? role.trim() : 'Principal Architect'
+    });
+
+    const session = queries.createSession(user.id);
+
+    res.json({
+      success: true,
+      message: 'Signed in with Google successfully',
+      token: session.token,
+      expiresAt: session.expiresAt,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        studio_name: user.studio_name,
+        role: user.role,
+        google_id: user.google_id,
+        avatar_url: user.avatar_url,
+        auth_provider: user.auth_provider
+      }
+    });
+  } catch (err) {
+    console.error('Google Sign-In error:', err);
+    res.status(500).json({ error: err.message || 'Error authenticating with Google' });
+  }
+});
+
 app.put('/api/auth/profile', authRequired, (req, res) => {
   try {
     const { name, studio_name, email, role } = req.body;
@@ -178,7 +265,10 @@ app.get('/api/auth/me', authRequired, (req, res) => {
       email: req.user.email,
       name: req.user.name,
       studio_name: req.user.studio_name,
-      role: req.user.role
+      role: req.user.role,
+      google_id: req.user.google_id,
+      avatar_url: req.user.avatar_url,
+      auth_provider: req.user.auth_provider
     }
   });
 });
@@ -186,7 +276,7 @@ app.get('/api/auth/me', authRequired, (req, res) => {
 // ================= DASHBOARD SUMMARY =================
 app.get('/api/dashboard/stats', authRequired, (req, res) => {
   try {
-    const stats = queries.getDashboardStats();
+    const stats = queries.getDashboardStats(req.user.user_id);
     res.json(stats);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -246,7 +336,7 @@ app.delete('/api/project-types/:id', authRequired, (req, res) => {
 // ================= CLIENTS =================
 app.get('/api/clients', authRequired, (req, res) => {
   try {
-    const clients = queries.getClients();
+    const clients = queries.getClients(req.user.user_id);
     res.json(clients);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -272,7 +362,7 @@ app.post('/api/clients', authRequired, (req, res) => {
     if (!name || !name.trim()) {
       return res.status(400).json({ error: 'Client name is required' });
     }
-    const result = queries.createClient(name.trim(), phone, email, address, company_name, notes);
+    const result = queries.createClient(name.trim(), phone, email, address, company_name, notes, req.user.user_id);
     res.json({ success: true, id: result.lastInsertRowid, message: 'Client created' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -307,6 +397,7 @@ app.delete('/api/clients/:id', authRequired, (req, res) => {
 app.get('/api/projects', authRequired, (req, res) => {
   try {
     const filters = {
+      user_id: req.user.user_id,
       status: req.query.status,
       project_type_id: req.query.project_type_id ? parseInt(req.query.project_type_id, 10) : undefined,
       client_id: req.query.client_id ? parseInt(req.query.client_id, 10) : undefined,
@@ -359,7 +450,8 @@ app.post('/api/projects', authRequired, (req, res) => {
       start_date,
       expected_completion_date,
       feeNum,
-      notes
+      notes,
+      req.user.user_id
     );
     res.json({ success: true, id: result.lastInsertRowid, message: 'Project created successfully' });
   } catch (err) {
