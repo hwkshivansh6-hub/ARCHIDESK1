@@ -620,8 +620,11 @@
               </div>
             </div>
 
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
-              <h3 style="font-family: var(--font-heading); font-size: 16px; font-weight: 700;">Payment History</h3>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; flex-wrap: wrap; gap: 8px;">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <h3 style="font-family: var(--font-heading); font-size: 16px; font-weight: 700; margin: 0;">Payment History</h3>
+                <span class="mobile-table-scroll-hint">↔ Swipe to view</span>
+              </div>
               <button class="btn btn-primary btn-sm" id="btn-add-payment-modal">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                 + Receive Payment
@@ -776,7 +779,10 @@
           </div>
 
           <!-- Project Financial Breakdown Table -->
-          <h3 style="font-family: var(--font-heading); font-size: 16px; font-weight: 700; margin-bottom: 12px;">Accounts by Project</h3>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 8px;">
+            <h3 style="font-family: var(--font-heading); font-size: 16px; font-weight: 700; margin: 0;">Accounts by Project</h3>
+            <span class="mobile-table-scroll-hint">↔ Swipe to view all columns</span>
+          </div>
           <div class="payments-table-container" style="margin-bottom: 24px;">
             <table class="payments-table">
               <thead>
@@ -797,7 +803,10 @@
           </div>
 
           <!-- All Received Payments Ledger -->
-          <h3 style="font-family: var(--font-heading); font-size: 16px; font-weight: 700; margin-bottom: 12px;">Complete Payment Ledger</h3>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 8px;">
+            <h3 style="font-family: var(--font-heading); font-size: 16px; font-weight: 700; margin: 0;">Complete Payment Ledger</h3>
+            <span class="mobile-table-scroll-hint">↔ Swipe to view all columns</span>
+          </div>
           <div class="payments-table-container">
             <table class="payments-table">
               <thead>
