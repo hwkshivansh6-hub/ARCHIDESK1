@@ -410,13 +410,15 @@ function renderDashboard(stats) {
   if (stats.recent_projects && stats.recent_projects.length > 0) {
     recentProjContainer.innerHTML = stats.recent_projects.map(p => `
       <div class="client-project-pill" style="cursor: pointer;" onclick="openProjectWorkspace(${p.id})">
-        <div>
-          <strong style="font-size: 13px;">${p.name}</strong>
-          <span style="font-size: 11px; color: var(--arch-ink-muted); margin-left: 6px;">${p.client_name} • ${p.location}</span>
+        <div style="min-width: 0; flex: 1;">
+          <div style="font-weight: 700; font-size: 13px; color: var(--arch-ink);">${p.name}</div>
+          <div style="font-size: 11px; color: var(--arch-ink-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px;">
+            ${p.client_name || ''}${p.location ? ' • ' + p.location : ''}
+          </div>
         </div>
-        <div style="display: flex; align-items: center; gap: 8px;">
+        <div style="display: flex; align-items: center; gap: 8px; flex-shrink: 0; margin-left: 8px;">
           <span class="badge-status status-${p.status.replace(' ', '-')}">${p.status}</span>
-          <span style="font-family: var(--font-mono); font-weight: 600; font-size: 12px;">${formatINR(p.total_fee)}</span>
+          <span style="font-family: var(--font-mono); font-weight: 700; font-size: 12px; color: var(--arch-ink);">${formatINR(p.total_fee)}</span>
         </div>
       </div>
     `).join('');
@@ -429,11 +431,13 @@ function renderDashboard(stats) {
   if (stats.recent_payments && stats.recent_payments.length > 0) {
     recentPayContainer.innerHTML = stats.recent_payments.map(pmt => `
       <div class="client-project-pill">
-        <div>
-          <div style="font-weight: 600; font-size: 13px;">${pmt.project_name}</div>
-          <div style="font-size: 11px; color: var(--arch-ink-muted);">${formatDate(pmt.payment_date)} • ${pmt.payment_method}</div>
+        <div style="min-width: 0; flex: 1;">
+          <div style="font-weight: 700; font-size: 13px; color: var(--arch-ink);">${pmt.project_name}</div>
+          <div style="font-size: 11px; color: var(--arch-ink-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px;">
+            ${formatDate(pmt.payment_date)} • ${pmt.payment_method}
+          </div>
         </div>
-        <div style="font-family: var(--font-mono); font-weight: 700; color: var(--arch-sage); font-size: 13px;">
+        <div style="font-family: var(--font-mono); font-weight: 700; color: var(--arch-sage); font-size: 13px; flex-shrink: 0; margin-left: 8px;">
           +${formatINR(pmt.amount)}
         </div>
       </div>
@@ -1651,19 +1655,25 @@ function initEventListeners() {
   // File dropzone text updates
   document.getElementById('draw-file-input').addEventListener('change', (e) => {
     if (e.target.files.length > 0) {
-      document.getElementById('draw-file-name-display').textContent = `Selected: ${e.target.files[0].name}`;
+      const f = e.target.files[0];
+      const kb = Math.round(f.size / 1024);
+      document.getElementById('draw-file-name-display').innerHTML = `✅ <strong>${f.name}</strong> <span style="font-size:11px; color:var(--arch-ink-muted); font-weight:normal;">(${kb} KB)</span>`;
     }
   });
 
   document.getElementById('rev-file-input').addEventListener('change', (e) => {
     if (e.target.files.length > 0) {
-      document.getElementById('rev-file-name-display').textContent = `Selected: ${e.target.files[0].name}`;
+      const f = e.target.files[0];
+      const kb = Math.round(f.size / 1024);
+      document.getElementById('rev-file-name-display').innerHTML = `✅ <strong>${f.name}</strong> <span style="font-size:11px; color:var(--arch-ink-muted); font-weight:normal;">(${kb} KB)</span>`;
     }
   });
 
   document.getElementById('img-file-input').addEventListener('change', (e) => {
     if (e.target.files.length > 0) {
-      document.getElementById('img-file-name-display').textContent = `Selected: ${e.target.files[0].name}`;
+      const f = e.target.files[0];
+      const kb = Math.round(f.size / 1024);
+      document.getElementById('img-file-name-display').innerHTML = `✅ <strong>${f.name}</strong> <span style="font-size:11px; color:var(--arch-ink-muted); font-weight:normal;">(${kb} KB)</span>`;
     }
   });
 
