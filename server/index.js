@@ -11,25 +11,59 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 // Cloudinary configuration using cloud environment credentials
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET
-});
+const hasCloudinary = Boolean(
+  process.env.CLOUDINARY_CLOUD_NAME &&
+  process.env.CLOUDINARY_API_KEY &&
+  process.env.CLOUDINARY_API_SECRET
+);
 
-// Multer configured to stream uploads directly to Cloudinary instead of local disk
-const storage = new CloudinaryStorage({
-  cloudinary: cloudinary,
-  params: {
-    folder: 'archimanager',
-    resource_type: 'auto'
-  }
-});
+if (hasCloudinary) {
+  cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET
+  });
+}
 
+// Multer memory storage allows direct streaming to Cloudinary or resilient Data URI fallback
 const upload = multer({
-  storage,
+  storage: multer.memoryStorage(),
   limits: { fileSize: 50 * 1024 * 1024 } // 50 MB
 });
+
+// Process uploaded file: Stream to Cloudinary if configured; otherwise generate persistent Data URI
+async function processUploadedFile(file) {
+  if (!file) return null;
+
+  // 1. If Cloudinary credentials are provided, stream directly to Cloudinary
+  if (hasCloudinary) {
+    try {
+      const result = await new Promise((resolve, reject) => {
+        const stream = cloudinary.uploader.upload_stream(
+          {
+            folder: 'archimanager',
+            resource_type: 'auto'
+          },
+          (error, res) => {
+            if (error) reject(error);
+            else resolve(res);
+          }
+        );
+        stream.end(file.buffer);
+      });
+
+      file.path = result.secure_url || result.url;
+      return file.path;
+    } catch (cloudErr) {
+      console.warn('⚠️ Cloudinary stream upload failed, falling back to persistent data URI:', cloudErr.message);
+    }
+  }
+
+  // 2. Resilient Fallback: Base64 Data URI persisted in cloud DB without disk dependency
+  const mimeType = file.mimetype || 'image/jpeg';
+  file.path = `data:${mimeType};base64,${file.buffer.toString('base64')}`;
+  return file.path;
+}
 
 // Middleware
 app.use(cors());
@@ -623,7 +657,7 @@ app.post('/api/projects/:id/drawings', authRequired, upload.single('file'), asyn
     let fileType = 'PDF';
 
     if (req.file) {
-      // Cloudinary sets req.file.path to the hosted secure URL
+      await processUploadedFile(req.file);
       fileUrl = req.file.path;
       fileName = req.file.originalname;
       fileSize = req.file.size;
@@ -669,7 +703,7 @@ app.post('/api/drawings/:id/revisions', authRequired, upload.single('file'), asy
     let fileType = 'PDF';
 
     if (req.file) {
-      // Cloudinary sets req.file.path to the hosted secure URL
+      await processUploadedFile(req.file);
       fileUrl = req.file.path;
       fileName = req.file.originalname;
       fileSize = req.file.size;
@@ -757,7 +791,7 @@ app.post('/api/projects/:id/images', authRequired, upload.single('file'), async 
     let fileSize = 350000;
 
     if (req.file) {
-      // Cloudinary sets req.file.path to the hosted secure URL
+      await processUploadedFile(req.file);
       fileUrl = req.file.path;
       fileName = req.file.originalname;
       fileSize = req.file.size;
@@ -793,6 +827,12 @@ app.delete('/api/images/:id', authRequired, async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// Error handling middleware for Multer or API errors
+app.use((err, req, res, next) => {
+  console.error('API / Upload Error:', err.message || err);
+  res.status(err.status || 500).json({ error: err.message || 'An unexpected server error occurred during upload' });
 });
 
 // Fallback to index.html for client-side routing

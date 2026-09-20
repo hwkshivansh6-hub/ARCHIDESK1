@@ -1192,7 +1192,7 @@
           <div class="form-group">
             <label class="form-label">Drawing File (PDF, DWG, DXF, PNG, JPG)</label>
             <div class="file-dropzone" onclick="document.getElementById('draw-file-input').click()">
-              <input type="file" id="draw-file-input" style="display: none;" accept=".pdf,.dwg,.dxf,.png,.jpg,.jpeg">
+              <input type="file" id="draw-file-input" style="display: none;" accept=".pdf,.dwg,.dxf,.png,.jpg,.jpeg" onclick="event.stopPropagation()">
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--arch-ink-muted); margin-bottom: 6px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
               <div style="font-size: 13px; font-weight: 600;" id="draw-file-name-display">Click to browse drawing file</div>
               <div style="font-size: 11px; color: var(--arch-ink-muted); margin-top: 4px;">Or leave empty to use sample architectural CAD vector</div>
@@ -1247,7 +1247,7 @@
           <div class="form-group">
             <label class="form-label">Updated File (PDF, DWG, DXF, PNG, JPG)</label>
             <div class="file-dropzone" onclick="document.getElementById('rev-file-input').click()">
-              <input type="file" id="rev-file-input" style="display: none;" accept=".pdf,.dwg,.dxf,.png,.jpg,.jpeg">
+              <input type="file" id="rev-file-input" style="display: none;" accept=".pdf,.dwg,.dxf,.png,.jpg,.jpeg" onclick="event.stopPropagation()">
               <div style="font-size: 13px; font-weight: 600;" id="rev-file-name-display">Click to browse revised file</div>
             </div>
           </div>
@@ -1320,7 +1320,7 @@
           <div class="form-group">
             <label class="form-label">Photograph File</label>
             <div class="file-dropzone" onclick="document.getElementById('img-file-input').click()">
-              <input type="file" id="img-file-input" style="display: none;" accept="image/*">
+              <input type="file" id="img-file-input" style="display: none;" accept="image/*" onclick="event.stopPropagation()">
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--arch-ink-muted); margin-bottom: 6px;"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
               <div style="font-size: 13px; font-weight: 600;" id="img-file-name-display">Click to select photo</div>
               <div style="font-size: 11px; color: var(--arch-ink-muted); margin-top: 4px;">Or leave empty to use architectural site render</div>

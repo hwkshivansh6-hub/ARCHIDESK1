@@ -91,7 +91,15 @@ async function apiRequest(endpoint, options = {}) {
       }
     }
 
-    const data = await res.json();
+    let data;
+    const contentType = res.headers.get('content-type') || '';
+    if (contentType.includes('application/json')) {
+      data = await res.json();
+    } else {
+      const text = await res.text();
+      data = { error: text || 'Server request error' };
+    }
+
     if (!res.ok) {
       throw new Error(data.error || 'Server request error');
     }
@@ -1312,7 +1320,18 @@ async function deletePaymentRecord(paymentId) {
 // Save Drawing
 async function handleSaveDrawing(e) {
   e.preventDefault();
-  if (!state.activeProjectId) return;
+  const projectId = state.activeProjectId || (state.projects && state.projects.length > 0 ? state.projects[0].id : null);
+  if (!projectId) {
+    showToast('Please create or open a project first', 'error');
+    return;
+  }
+
+  const btn = document.getElementById('btn-save-drawing');
+  const origText = btn ? btn.innerHTML : 'Upload & Save';
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Uploading...';
+  }
 
   const formData = new FormData();
   formData.append('name', document.getElementById('draw-name').value);
@@ -1334,15 +1353,20 @@ async function handleSaveDrawing(e) {
   }
 
   try {
-    await apiRequest(`/projects/${state.activeProjectId}/drawings`, {
+    await apiRequest(`/projects/${projectId}/drawings`, {
       method: 'POST',
       body: formData
     });
     showToast('Drawing uploaded successfully', 'success');
     closeModal('modal-drawing');
-    loadProjectDrawings(state.activeProjectId);
+    loadProjectDrawings(projectId);
   } catch (err) {
     showToast(err.message, 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = origText;
+    }
   }
 }
 
@@ -1350,6 +1374,17 @@ async function handleSaveDrawing(e) {
 async function handleSaveRevision(e) {
   e.preventDefault();
   const drawingId = document.getElementById('rev-drawing-id').value;
+  if (!drawingId) {
+    showToast('No drawing selected for revision', 'error');
+    return;
+  }
+
+  const btn = document.getElementById('btn-save-revision');
+  const origText = btn ? btn.innerHTML : 'Save Revision';
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Saving...';
+  }
 
   const formData = new FormData();
   formData.append('revision_code', document.getElementById('rev-code-input').value);
@@ -1368,9 +1403,16 @@ async function handleSaveRevision(e) {
     });
     showToast('New drawing revision recorded', 'success');
     closeModal('modal-revision');
-    loadProjectDrawings(state.activeProjectId);
+    if (state.activeProjectId) {
+      loadProjectDrawings(state.activeProjectId);
+    }
   } catch (err) {
     showToast(err.message, 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = origText;
+    }
   }
 }
 
@@ -1380,7 +1422,9 @@ async function deleteDrawingRecord(drawingId) {
   try {
     await apiRequest(`/drawings/${drawingId}`, { method: 'DELETE' });
     showToast('Drawing deleted', 'success');
-    loadProjectDrawings(state.activeProjectId);
+    if (state.activeProjectId) {
+      loadProjectDrawings(state.activeProjectId);
+    }
   } catch (err) {
     showToast(err.message, 'error');
   }
@@ -1389,7 +1433,18 @@ async function deleteDrawingRecord(drawingId) {
 // Save Image to Site Timeline
 async function handleSaveImage(e) {
   e.preventDefault();
-  if (!state.activeProjectId) return;
+  const projectId = state.activeProjectId || (state.projects && state.projects.length > 0 ? state.projects[0].id : null);
+  if (!projectId) {
+    showToast('Please create or open a project first', 'error');
+    return;
+  }
+
+  const btn = document.getElementById('btn-save-image');
+  const origText = btn ? btn.innerHTML : 'Save to Timeline';
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Uploading...';
+  }
 
   const formData = new FormData();
   formData.append('title', document.getElementById('img-title').value);
@@ -1410,15 +1465,20 @@ async function handleSaveImage(e) {
   }
 
   try {
-    await apiRequest(`/projects/${state.activeProjectId}/images`, {
+    await apiRequest(`/projects/${projectId}/images`, {
       method: 'POST',
       body: formData
     });
     showToast('Photo added to project progress timeline', 'success');
     closeModal('modal-image');
-    loadProjectImages(state.activeProjectId);
+    loadProjectImages(projectId);
   } catch (err) {
     showToast(err.message, 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = origText;
+    }
   }
 }
 
