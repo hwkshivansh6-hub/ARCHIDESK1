@@ -48,12 +48,12 @@ It manages **Projects, Clients, Accounts, Drawings (with full revision history),
 
 ## 🛠️ Technology Stack
 
-- **Backend**: Node.js v24 with native `node:sqlite` (SQLite v3.53.3 built-in)
-  - Zero external native build tool dependencies
+- **Backend & Database**: Node.js with `@libsql/client` (Turso cloud libSQL engine for ephemeral Render deployments)
+  - Zero local disk file locks; persistent cloud storage
   - ACID-compliant relational tables with foreign keys and cascade rules
-- **Server**: Express.js, CORS, Multer (file uploads)
+- **Server**: Express.js, CORS, Multer with `multer-storage-cloudinary`
 - **Frontend**: Semantic HTML5, Vanilla CSS3 (Architectural design tokens & micro-animations), Modern Vanilla ES JavaScript
-- **Storage**: Persistent SQLite file (`archimanager.db`) and static uploaded files (`uploads/`)
+- **Storage**: Turso Cloud Database (`TURSO_DATABASE_URL`) & Cloudinary Media Storage (`CLOUDINARY_*`)
 
 ---
 
@@ -79,6 +79,8 @@ clients
 git clone https://github.com/hwkshivansh6-hub/ARCHIDESK.git
 cd ARCHIDESK
 npm install
+cp .env.example .env
+# Fill in your TURSO_DATABASE_URL, TURSO_AUTH_TOKEN, and CLOUDINARY credentials in .env
 ```
 
 ### 2. Start Application

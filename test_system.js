@@ -1,16 +1,19 @@
-const { queries, hashPassword } = require('./server/db');
+const { initDatabase, queries, hashPassword } = require('./server/db');
 
 async function runTests() {
   console.log('🧪 Starting ArchiDesk System & Relational Database Test Suite...\n');
 
+  // Ensure DB schema and default data are initialized
+  await initDatabase();
+
   // 1. Verify User & Auth
   console.log('1️⃣  Verifying User Authentication...');
-  const user = queries.getUserByEmail('architect@archidesk.com');
+  const user = await queries.getUserByEmail('architect@archidesk.com');
   if (!user || user.password_hash !== hashPassword('studio2026')) {
     throw new Error('User authentication verification failed');
   }
-  const session = queries.createSession(user.id);
-  const validSession = queries.getSession(session.token);
+  const session = await queries.createSession(user.id);
+  const validSession = await queries.getSession(session.token);
   if (!validSession || validSession.email !== 'architect@archidesk.com') {
     throw new Error('Session creation or validation failed');
   }
@@ -18,10 +21,11 @@ async function runTests() {
 
   // 2. Verify Relational Connection: Client -> Project -> Project Type
   console.log('2️⃣  Verifying Relational Database Links...');
-  const rahulClient = queries.getClients().find(c => c.name === 'Rahul Sharma');
+  const allClients = await queries.getClients();
+  const rahulClient = allClients.find(c => c.name === 'Rahul Sharma');
   if (!rahulClient) throw new Error('Client Rahul Sharma not found');
 
-  const clientDetails = queries.getClientById(rahulClient.id);
+  const clientDetails = await queries.getClientById(rahulClient.id);
   if (!clientDetails.projects || clientDetails.projects.length === 0) {
     throw new Error('Rahul Sharma has no connected projects in database');
   }
@@ -46,7 +50,7 @@ async function runTests() {
   console.log('4️⃣  Testing Payment Addition & Immediate Recalculation (Prompt Rule #22)...');
   const prevRec = sharmaResidence.received_amount;
   const payAmt = 5000;
-  const payRes = queries.addPayment(
+  const payRes = await queries.addPayment(
     sharmaResidence.id,
     payAmt,
     '2026-09-17',
@@ -55,7 +59,7 @@ async function runTests() {
   );
   console.log(`   Payment of ₹${payAmt} added (id=${payRes.lastInsertRowid})`);
 
-  const updatedProject = queries.getProjectById(sharmaResidence.id);
+  const updatedProject = await queries.getProjectById(sharmaResidence.id);
   console.log(`   After payment:`);
   console.log(`   - Agreed Fee: ₹${updatedProject.total_fee}`);
   console.log(`   - Received:   ₹${updatedProject.received_amount} (was ₹${prevRec})`);
@@ -68,7 +72,7 @@ async function runTests() {
 
   // 5. Test Drawings & Revision History
   console.log('5️⃣  Testing Drawings & Historical Revisions...');
-  const drawings = queries.getDrawings(sharmaResidence.id);
+  const drawings = await queries.getDrawings(sharmaResidence.id);
   console.log(`   Sharma Residence has ${drawings.length} drawing(s):`);
   drawings.forEach(d => {
     console.log(`   - [${d.drawing_number}] ${d.name} (${d.category}) → Latest: ${d.latest_revision} (${d.revision_count} revs total)`);
@@ -78,7 +82,7 @@ async function runTests() {
   if (!gfPlan) throw new Error('Ground Floor Plan not found');
 
   // Add revision R03
-  queries.addDrawingRevision(
+  await queries.addDrawingRevision(
     gfPlan.id,
     'R03',
     'Final client sign-off with skylight shaft coordinate lock',
@@ -89,7 +93,7 @@ async function runTests() {
     'PDF'
   );
 
-  const gfWithRevs = queries.getDrawingWithRevisions(gfPlan.id);
+  const gfWithRevs = await queries.getDrawingWithRevisions(gfPlan.id);
   console.log(`   ✓ Added revision R03! Total revisions now: ${gfWithRevs.revisions.length}`);
   console.log(`   ✓ Revision codes in history:`, gfWithRevs.revisions.map(r => r.revision_code));
   if (gfWithRevs.revisions[0].revision_code !== 'R03') {
@@ -98,7 +102,7 @@ async function runTests() {
 
   // 6. Test Site Photo Timeline
   console.log('6️⃣  Testing Site Photo Chronological Timeline...');
-  const timeline = queries.getProjectTimeline(sharmaResidence.id, 'ASC');
+  const timeline = await queries.getProjectTimeline(sharmaResidence.id, 'ASC');
   console.log(`   Chronological site milestones (${timeline.length} photos):`);
   timeline.forEach(t => {
     console.log(`   - [${t.date}] [${t.category}] ${t.title} (${t.location_area || 'Site'})`);
@@ -108,7 +112,7 @@ async function runTests() {
 
   // 7. Test Dashboard Summary Stats
   console.log('7️⃣  Testing Dashboard Aggregate Stats...');
-  const dashStats = queries.getDashboardStats();
+  const dashStats = await queries.getDashboardStats();
   console.log('   Dashboard totals:', {
     projects: dashStats.projects_counts,
     clients: dashStats.clients_count,

@@ -1,29 +1,28 @@
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
-const fs = require('fs');
 const multer = require('multer');
-const { queries, hashPassword } = require('./db');
+const cloudinary = require('cloudinary').v2;
+const { CloudinaryStorage } = require('multer-storage-cloudinary');
+const { initDatabase, queries, hashPassword } = require('./db');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Ensure upload directory exists
-const UPLOAD_DIR = path.join(__dirname, '..', 'uploads');
-if (!fs.existsSync(UPLOAD_DIR)) {
-  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-}
+// Cloudinary configuration using cloud environment credentials
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET
+});
 
-// Multer configuration for file uploads
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, UPLOAD_DIR);
-  },
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname);
-    const base = path.basename(file.originalname, ext).replace(/[^a-zA-Z0-9_-]/g, '_');
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E6);
-    cb(null, `${base}-${uniqueSuffix}${ext}`);
+// Multer configured to stream uploads directly to Cloudinary instead of local disk
+const storage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: {
+    folder: 'archimanager',
+    resource_type: 'auto'
   }
 });
 
@@ -37,30 +36,34 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Serve static assets
+// Serve static client assets
 app.use(express.static(path.join(__dirname, '..', 'public')));
-app.use('/uploads', express.static(UPLOAD_DIR));
 
 // Auth Middleware
-function authRequired(req, res, next) {
-  const authHeader = req.headers.authorization;
-  const token = authHeader ? authHeader.replace('Bearer ', '').trim() : req.query.token;
+async function authRequired(req, res, next) {
+  try {
+    const authHeader = req.headers.authorization;
+    const token = authHeader ? authHeader.replace('Bearer ', '').trim() : req.query.token;
 
-  if (!token) {
-    return res.status(401).json({ error: 'Unauthorized: No token provided' });
+    if (!token) {
+      return res.status(401).json({ error: 'Unauthorized: No token provided' });
+    }
+
+    const session = await queries.getSession(token);
+    if (!session) {
+      return res.status(401).json({ error: 'Unauthorized: Session expired or invalid' });
+    }
+
+    req.user = session;
+    next();
+  } catch (err) {
+    console.error('Auth middleware error:', err);
+    res.status(500).json({ error: 'Internal server error during authentication' });
   }
-
-  const session = queries.getSession(token);
-  if (!session) {
-    return res.status(401).json({ error: 'Unauthorized: Session expired or invalid' });
-  }
-
-  req.user = session;
-  next();
 }
 
 // ================= AUTH ROUTES =================
-app.post('/api/auth/register', (req, res) => {
+app.post('/api/auth/register', async (req, res) => {
   try {
     const { email, password, name, studio_name, role } = req.body;
     if (!email || !email.trim()) {
@@ -71,12 +74,12 @@ app.post('/api/auth/register', (req, res) => {
     }
 
     const cleanEmail = email.trim().toLowerCase();
-    const existing = queries.getUserByEmail(cleanEmail);
+    const existing = await queries.getUserByEmail(cleanEmail);
     if (existing) {
       return res.status(400).json({ error: 'An account with this email already exists. Please log in.' });
     }
 
-    const newUserId = queries.createUser(
+    const newUserId = await queries.createUser(
       cleanEmail,
       password,
       name ? name.trim() : 'Er. Shivansh',
@@ -84,8 +87,8 @@ app.post('/api/auth/register', (req, res) => {
       role ? role.trim() : 'Principal Architect'
     );
 
-    const user = queries.getUserById(newUserId);
-    const session = queries.createSession(user.id);
+    const user = await queries.getUserById(newUserId);
+    const session = await queries.createSession(user.id);
 
     res.json({
       success: true,
@@ -100,7 +103,7 @@ app.post('/api/auth/register', (req, res) => {
   }
 });
 
-app.post('/api/auth/login', (req, res) => {
+app.post('/api/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
     if (!email || !password) {
@@ -108,7 +111,7 @@ app.post('/api/auth/login', (req, res) => {
     }
 
     const cleanEmail = email.trim().toLowerCase();
-    const user = queries.getUserByEmail(cleanEmail);
+    const user = await queries.getUserByEmail(cleanEmail);
     if (!user) {
       return res.status(401).json({ error: 'No account found with this email. Click "Register New Account" to sign up!' });
     }
@@ -117,7 +120,7 @@ app.post('/api/auth/login', (req, res) => {
       return res.status(401).json({ error: 'Incorrect password. Please try again.' });
     }
 
-    const session = queries.createSession(user.id);
+    const session = await queries.createSession(user.id);
     res.json({
       token: session.token,
       expiresAt: session.expiresAt,
@@ -158,7 +161,6 @@ app.post('/api/auth/google', async (req, res) => {
           finalName = payload.name || payload.given_name;
           finalAvatar = payload.picture;
         } else {
-          // If tokeninfo endpoint returned non-200, safely extract JWT claims
           const parts = credential.split('.');
           if (parts.length === 3) {
             const claims = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
@@ -189,7 +191,7 @@ app.post('/api/auth/google', async (req, res) => {
     const cleanEmail = finalEmail.trim().toLowerCase();
     const cleanGoogleId = finalGoogleId ? String(finalGoogleId).trim() : `g_${cleanEmail.replace(/[^a-zA-Z0-9]/g, '_')}`;
 
-    const user = queries.createOrUpdateGoogleUser({
+    const user = await queries.createOrUpdateGoogleUser({
       googleId: cleanGoogleId,
       email: cleanEmail,
       name: finalName ? finalName.trim() : 'Google Architect',
@@ -198,7 +200,7 @@ app.post('/api/auth/google', async (req, res) => {
       role: role ? role.trim() : 'Principal Architect'
     });
 
-    const session = queries.createSession(user.id);
+    const session = await queries.createSession(user.id);
 
     res.json({
       success: true,
@@ -222,14 +224,14 @@ app.post('/api/auth/google', async (req, res) => {
   }
 });
 
-app.put('/api/auth/profile', authRequired, (req, res) => {
+app.put('/api/auth/profile', authRequired, async (req, res) => {
   try {
     const { name, studio_name, email, role } = req.body;
     if (!name || !name.trim()) {
       return res.status(400).json({ error: 'Principal architect/engineer name is required' });
     }
 
-    queries.updateUserProfile(
+    await queries.updateUserProfile(
       req.user.user_id,
       name.trim(),
       studio_name && studio_name.trim() ? studio_name.trim() : 'SHASWAT DESIGNS',
@@ -237,7 +239,7 @@ app.put('/api/auth/profile', authRequired, (req, res) => {
       role && role.trim() ? role.trim() : req.user.role
     );
 
-    const updated = queries.getUserById(req.user.user_id);
+    const updated = await queries.getUserById(req.user.user_id);
     res.json({ success: true, message: 'Principal profile updated successfully', user: updated });
   } catch (err) {
     console.error('Profile update error:', err);
@@ -245,12 +247,12 @@ app.put('/api/auth/profile', authRequired, (req, res) => {
   }
 });
 
-app.post('/api/auth/logout', (req, res) => {
+app.post('/api/auth/logout', async (req, res) => {
   try {
     const authHeader = req.headers.authorization;
     const token = authHeader ? authHeader.replace('Bearer ', '').trim() : req.body.token;
     if (token) {
-      queries.deleteSession(token);
+      await queries.deleteSession(token);
     }
     res.json({ success: true, message: 'Logged out successfully' });
   } catch (err) {
@@ -274,9 +276,9 @@ app.get('/api/auth/me', authRequired, (req, res) => {
 });
 
 // ================= DASHBOARD SUMMARY =================
-app.get('/api/dashboard/stats', authRequired, (req, res) => {
+app.get('/api/dashboard/stats', authRequired, async (req, res) => {
   try {
-    const stats = queries.getDashboardStats(req.user.user_id);
+    const stats = await queries.getDashboardStats(req.user.user_id);
     res.json(stats);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -284,49 +286,49 @@ app.get('/api/dashboard/stats', authRequired, (req, res) => {
 });
 
 // ================= PROJECT TYPES =================
-app.get('/api/project-types', authRequired, (req, res) => {
+app.get('/api/project-types', authRequired, async (req, res) => {
   try {
-    const types = queries.getProjectTypes();
+    const types = await queries.getProjectTypes();
     res.json(types);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.post('/api/project-types', authRequired, (req, res) => {
+app.post('/api/project-types', authRequired, async (req, res) => {
   try {
     const { name, color } = req.body;
     if (!name || !name.trim()) {
       return res.status(400).json({ error: 'Project type name is required' });
     }
-    const result = queries.createProjectType(name.trim(), color || '#2563eb');
+    const result = await queries.createProjectType(name.trim(), color || '#2563eb');
     res.json({ success: true, id: result.lastInsertRowid, message: 'Project type created' });
   } catch (err) {
-    if (err.message.includes('UNIQUE')) {
+    if (err.message && err.message.includes('UNIQUE')) {
       return res.status(400).json({ error: 'A project type with this name already exists' });
     }
     res.status(500).json({ error: err.message });
   }
 });
 
-app.put('/api/project-types/:id', authRequired, (req, res) => {
+app.put('/api/project-types/:id', authRequired, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     const { name, color } = req.body;
     if (!name || !name.trim()) {
       return res.status(400).json({ error: 'Project type name is required' });
     }
-    queries.updateProjectType(id, name.trim(), color || '#2563eb');
+    await queries.updateProjectType(id, name.trim(), color || '#2563eb');
     res.json({ success: true, message: 'Project type updated' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.delete('/api/project-types/:id', authRequired, (req, res) => {
+app.delete('/api/project-types/:id', authRequired, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
-    queries.deleteProjectType(id);
+    await queries.deleteProjectType(id);
     res.json({ success: true, message: 'Project type deleted' });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -334,19 +336,19 @@ app.delete('/api/project-types/:id', authRequired, (req, res) => {
 });
 
 // ================= CLIENTS =================
-app.get('/api/clients', authRequired, (req, res) => {
+app.get('/api/clients', authRequired, async (req, res) => {
   try {
-    const clients = queries.getClients(req.user.user_id);
+    const clients = await queries.getClients(req.user.user_id);
     res.json(clients);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.get('/api/clients/:id', authRequired, (req, res) => {
+app.get('/api/clients/:id', authRequired, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
-    const client = queries.getClientById(id);
+    const client = await queries.getClientById(id);
     if (!client) {
       return res.status(404).json({ error: 'Client not found' });
     }
@@ -356,37 +358,37 @@ app.get('/api/clients/:id', authRequired, (req, res) => {
   }
 });
 
-app.post('/api/clients', authRequired, (req, res) => {
+app.post('/api/clients', authRequired, async (req, res) => {
   try {
     const { name, phone, email, address, company_name, notes } = req.body;
     if (!name || !name.trim()) {
       return res.status(400).json({ error: 'Client name is required' });
     }
-    const result = queries.createClient(name.trim(), phone, email, address, company_name, notes, req.user.user_id);
+    const result = await queries.createClient(name.trim(), phone, email, address, company_name, notes, req.user.user_id);
     res.json({ success: true, id: result.lastInsertRowid, message: 'Client created' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.put('/api/clients/:id', authRequired, (req, res) => {
+app.put('/api/clients/:id', authRequired, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     const { name, phone, email, address, company_name, notes } = req.body;
     if (!name || !name.trim()) {
       return res.status(400).json({ error: 'Client name is required' });
     }
-    queries.updateClient(id, name.trim(), phone, email, address, company_name, notes);
+    await queries.updateClient(id, name.trim(), phone, email, address, company_name, notes);
     res.json({ success: true, message: 'Client updated' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.delete('/api/clients/:id', authRequired, (req, res) => {
+app.delete('/api/clients/:id', authRequired, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
-    queries.deleteClient(id);
+    await queries.deleteClient(id);
     res.json({ success: true, message: 'Client deleted' });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -394,7 +396,7 @@ app.delete('/api/clients/:id', authRequired, (req, res) => {
 });
 
 // ================= PROJECTS =================
-app.get('/api/projects', authRequired, (req, res) => {
+app.get('/api/projects', authRequired, async (req, res) => {
   try {
     const filters = {
       user_id: req.user.user_id,
@@ -404,17 +406,17 @@ app.get('/api/projects', authRequired, (req, res) => {
       location: req.query.location,
       search: req.query.search
     };
-    const projects = queries.getProjects(filters);
+    const projects = await queries.getProjects(filters);
     res.json(projects);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.get('/api/projects/:id', authRequired, (req, res) => {
+app.get('/api/projects/:id', authRequired, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
-    const project = queries.getProjectById(id);
+    const project = await queries.getProjectById(id);
     if (!project) {
       return res.status(404).json({ error: 'Project not found' });
     }
@@ -424,7 +426,7 @@ app.get('/api/projects/:id', authRequired, (req, res) => {
   }
 });
 
-app.post('/api/projects', authRequired, (req, res) => {
+app.post('/api/projects', authRequired, async (req, res) => {
   try {
     const { client_id, project_type_id, name, location, status, start_date, expected_completion_date, total_fee, notes } = req.body;
     if (!name || !name.trim()) {
@@ -441,7 +443,7 @@ app.post('/api/projects', authRequired, (req, res) => {
     }
 
     const feeNum = parseFloat(total_fee) || 0;
-    const result = queries.createProject(
+    const result = await queries.createProject(
       parseInt(client_id, 10),
       parseInt(project_type_id, 10),
       name.trim(),
@@ -459,7 +461,7 @@ app.post('/api/projects', authRequired, (req, res) => {
   }
 });
 
-app.put('/api/projects/:id', authRequired, (req, res) => {
+app.put('/api/projects/:id', authRequired, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     const { client_id, project_type_id, name, location, status, start_date, expected_completion_date, total_fee, notes } = req.body;
@@ -467,7 +469,7 @@ app.put('/api/projects/:id', authRequired, (req, res) => {
       return res.status(400).json({ error: 'Project name is required' });
     }
     const feeNum = parseFloat(total_fee) || 0;
-    queries.updateProject(
+    await queries.updateProject(
       id,
       parseInt(client_id, 10),
       parseInt(project_type_id, 10),
@@ -485,24 +487,24 @@ app.put('/api/projects/:id', authRequired, (req, res) => {
   }
 });
 
-app.patch('/api/projects/:id/status', authRequired, (req, res) => {
+app.patch('/api/projects/:id/status', authRequired, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     const { status } = req.body;
     if (!['Active', 'Completed', 'Pre-Planning'].includes(status)) {
       return res.status(400).json({ error: 'Invalid status. Must be Active, Completed, or Pre-Planning' });
     }
-    queries.updateProjectStatus(id, status);
+    await queries.updateProjectStatus(id, status);
     res.json({ success: true, status, message: `Project status updated to ${status}` });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.delete('/api/projects/:id', authRequired, (req, res) => {
+app.delete('/api/projects/:id', authRequired, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
-    queries.deleteProject(id);
+    await queries.deleteProject(id);
     res.json({ success: true, message: 'Project deleted' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -510,26 +512,26 @@ app.delete('/api/projects/:id', authRequired, (req, res) => {
 });
 
 // ================= ACCOUNTS & PAYMENTS =================
-app.get('/api/accounts/summary', authRequired, (req, res) => {
+app.get('/api/accounts/summary', authRequired, async (req, res) => {
   try {
-    const summary = queries.getAccountsSummary();
+    const summary = await queries.getAccountsSummary();
     res.json(summary);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.get('/api/payments', authRequired, (req, res) => {
+app.get('/api/payments', authRequired, async (req, res) => {
   try {
     const projectId = req.query.project_id ? parseInt(req.query.project_id, 10) : null;
-    const payments = queries.getPayments(projectId);
+    const payments = await queries.getPayments(projectId);
     res.json(payments);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.post('/api/payments', authRequired, (req, res) => {
+app.post('/api/payments', authRequired, async (req, res) => {
   try {
     const { project_id, amount, payment_date, payment_method, reference_note } = req.body;
     if (!project_id) {
@@ -543,7 +545,7 @@ app.post('/api/payments', authRequired, (req, res) => {
       return res.status(400).json({ error: 'Payment date is required' });
     }
 
-    const result = queries.addPayment(
+    const result = await queries.addPayment(
       parseInt(project_id, 10),
       amtNum,
       payment_date,
@@ -552,7 +554,7 @@ app.post('/api/payments', authRequired, (req, res) => {
     );
 
     // Get recalculated project financial data
-    const updatedProj = queries.getProjectById(parseInt(project_id, 10));
+    const updatedProj = await queries.getProjectById(parseInt(project_id, 10));
 
     res.json({
       success: true,
@@ -570,10 +572,10 @@ app.post('/api/payments', authRequired, (req, res) => {
   }
 });
 
-app.delete('/api/payments/:id', authRequired, (req, res) => {
+app.delete('/api/payments/:id', authRequired, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
-    queries.deletePayment(id);
+    await queries.deletePayment(id);
     res.json({ success: true, message: 'Payment deleted and balance recalculated' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -581,20 +583,20 @@ app.delete('/api/payments/:id', authRequired, (req, res) => {
 });
 
 // ================= DRAWINGS & REVISIONS =================
-app.get('/api/projects/:id/drawings', authRequired, (req, res) => {
+app.get('/api/projects/:id/drawings', authRequired, async (req, res) => {
   try {
     const projectId = parseInt(req.params.id, 10);
-    const drawings = queries.getDrawings(projectId);
+    const drawings = await queries.getDrawings(projectId);
     res.json(drawings);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.get('/api/drawings/:id/revisions', authRequired, (req, res) => {
+app.get('/api/drawings/:id/revisions', authRequired, async (req, res) => {
   try {
     const drawingId = parseInt(req.params.id, 10);
-    const drawingWithRevs = queries.getDrawingWithRevisions(drawingId);
+    const drawingWithRevs = await queries.getDrawingWithRevisions(drawingId);
     if (!drawingWithRevs) {
       return res.status(404).json({ error: 'Drawing not found' });
     }
@@ -604,7 +606,7 @@ app.get('/api/drawings/:id/revisions', authRequired, (req, res) => {
   }
 });
 
-app.post('/api/projects/:id/drawings', authRequired, upload.single('file'), (req, res) => {
+app.post('/api/projects/:id/drawings', authRequired, upload.single('file'), async (req, res) => {
   try {
     const projectId = parseInt(req.params.id, 10);
     const { name, drawing_number, category, description, revision_code, revision_note } = req.body;
@@ -621,7 +623,8 @@ app.post('/api/projects/:id/drawings', authRequired, upload.single('file'), (req
     let fileType = 'PDF';
 
     if (req.file) {
-      fileUrl = `/uploads/${req.file.filename}`;
+      // Cloudinary sets req.file.path to the hosted secure URL
+      fileUrl = req.file.path;
       fileName = req.file.originalname;
       fileSize = req.file.size;
       const ext = path.extname(req.file.originalname).toUpperCase().replace('.', '');
@@ -631,7 +634,7 @@ app.post('/api/projects/:id/drawings', authRequired, upload.single('file'), (req
       fileName = req.body.preset_asset.split('/').pop();
     }
 
-    const drawingId = queries.createDrawing(
+    const drawingId = await queries.createDrawing(
       projectId,
       name.trim(),
       drawing_number,
@@ -652,7 +655,7 @@ app.post('/api/projects/:id/drawings', authRequired, upload.single('file'), (req
   }
 });
 
-app.post('/api/drawings/:id/revisions', authRequired, upload.single('file'), (req, res) => {
+app.post('/api/drawings/:id/revisions', authRequired, upload.single('file'), async (req, res) => {
   try {
     const drawingId = parseInt(req.params.id, 10);
     const { revision_code, revision_note, revision_date } = req.body;
@@ -666,14 +669,15 @@ app.post('/api/drawings/:id/revisions', authRequired, upload.single('file'), (re
     let fileType = 'PDF';
 
     if (req.file) {
-      fileUrl = `/uploads/${req.file.filename}`;
+      // Cloudinary sets req.file.path to the hosted secure URL
+      fileUrl = req.file.path;
       fileName = req.file.originalname;
       fileSize = req.file.size;
       const ext = path.extname(req.file.originalname).toUpperCase().replace('.', '');
       fileType = ['PDF', 'JPG', 'JPEG', 'PNG', 'DWG', 'DXF'].includes(ext) ? ext : 'PDF';
     }
 
-    const result = queries.addDrawingRevision(
+    const result = await queries.addDrawingRevision(
       drawingId,
       revision_code.trim().toUpperCase(),
       revision_note || 'Drawing revision updated',
@@ -690,24 +694,24 @@ app.post('/api/drawings/:id/revisions', authRequired, upload.single('file'), (re
   }
 });
 
-app.put('/api/drawings/:id', authRequired, (req, res) => {
+app.put('/api/drawings/:id', authRequired, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     const { name, drawing_number, category, description } = req.body;
     if (!name || !name.trim()) {
       return res.status(400).json({ error: 'Drawing name is required' });
     }
-    queries.updateDrawing(id, name.trim(), drawing_number, category, description);
+    await queries.updateDrawing(id, name.trim(), drawing_number, category, description);
     res.json({ success: true, message: 'Drawing details updated' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.delete('/api/drawings/:id', authRequired, (req, res) => {
+app.delete('/api/drawings/:id', authRequired, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
-    queries.deleteDrawing(id);
+    await queries.deleteDrawing(id);
     res.json({ success: true, message: 'Drawing and all historical revisions deleted' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -715,29 +719,29 @@ app.delete('/api/drawings/:id', authRequired, (req, res) => {
 });
 
 // ================= IMAGES & SITE TIMELINE =================
-app.get('/api/projects/:id/images', authRequired, (req, res) => {
+app.get('/api/projects/:id/images', authRequired, async (req, res) => {
   try {
     const projectId = parseInt(req.params.id, 10);
     const category = req.query.category;
-    const images = queries.getProjectImages(projectId, category);
+    const images = await queries.getProjectImages(projectId, category);
     res.json(images);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.get('/api/projects/:id/timeline', authRequired, (req, res) => {
+app.get('/api/projects/:id/timeline', authRequired, async (req, res) => {
   try {
     const projectId = parseInt(req.params.id, 10);
     const sort = req.query.sort || 'ASC';
-    const timeline = queries.getProjectTimeline(projectId, sort);
+    const timeline = await queries.getProjectTimeline(projectId, sort);
     res.json(timeline);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.post('/api/projects/:id/images', authRequired, upload.single('file'), (req, res) => {
+app.post('/api/projects/:id/images', authRequired, upload.single('file'), async (req, res) => {
   try {
     const projectId = parseInt(req.params.id, 10);
     const { title, date, category, description, location_area } = req.body;
@@ -753,7 +757,8 @@ app.post('/api/projects/:id/images', authRequired, upload.single('file'), (req, 
     let fileSize = 350000;
 
     if (req.file) {
-      fileUrl = `/uploads/${req.file.filename}`;
+      // Cloudinary sets req.file.path to the hosted secure URL
+      fileUrl = req.file.path;
       fileName = req.file.originalname;
       fileSize = req.file.size;
     } else if (req.body.preset_asset) {
@@ -761,7 +766,7 @@ app.post('/api/projects/:id/images', authRequired, upload.single('file'), (req, 
       fileName = req.body.preset_asset.split('/').pop();
     }
 
-    const result = queries.createProjectImage(
+    const result = await queries.createProjectImage(
       projectId,
       title.trim(),
       date,
@@ -780,10 +785,10 @@ app.post('/api/projects/:id/images', authRequired, upload.single('file'), (req, 
   }
 });
 
-app.delete('/api/images/:id', authRequired, (req, res) => {
+app.delete('/api/images/:id', authRequired, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
-    queries.deleteProjectImage(id);
+    await queries.deleteProjectImage(id);
     res.json({ success: true, message: 'Image deleted' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -795,7 +800,12 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
 });
 
-// Start Server
-app.listen(PORT, () => {
-  console.log(`🏛️  ArchiDesk Studio server running at http://localhost:${PORT}`);
+// Initialize database schema and start server
+initDatabase().then(() => {
+  app.listen(PORT, () => {
+    console.log(`🏛️  ArchiDesk Studio server running at http://localhost:${PORT}`);
+  });
+}).catch(err => {
+  console.error('Fatal: Failed to initialize database:', err);
+  process.exit(1);
 });
