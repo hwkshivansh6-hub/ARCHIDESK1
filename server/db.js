@@ -779,7 +779,7 @@ const queries = {
       sql: `
         SELECT p.*, pt.name as project_type_name, pt.badge_color,
           COALESCE(SUM(pmt.amount), 0) as received_amount,
-          (p.total_fee - COALESCE(SUM(pmt.amount), 0)) as balance_amount
+          MAX(0, (p.total_fee - COALESCE(SUM(pmt.amount), 0))) as balance_amount
         FROM projects p
         JOIN project_types pt ON p.project_type_id = pt.id
         LEFT JOIN payments pmt ON p.id = pmt.project_id
@@ -837,7 +837,7 @@ const queries = {
         c.name as client_name, c.phone as client_phone, c.email as client_email,
         pt.name as project_type_name, pt.badge_color,
         COALESCE(SUM(pmt.amount), 0) as received_amount,
-        (p.total_fee - COALESCE(SUM(pmt.amount), 0)) as balance_amount,
+        MAX(0, (p.total_fee - COALESCE(SUM(pmt.amount), 0))) as balance_amount,
         (SELECT COUNT(*) FROM drawings WHERE project_id = p.id) as drawings_count,
         (SELECT COUNT(*) FROM project_images WHERE project_id = p.id) as images_count
       FROM projects p
@@ -886,7 +886,7 @@ const queries = {
           c.name as client_name, c.phone as client_phone, c.email as client_email, c.address as client_address, c.company_name as client_company,
           pt.name as project_type_name, pt.badge_color,
           COALESCE(SUM(pmt.amount), 0) as received_amount,
-          (p.total_fee - COALESCE(SUM(pmt.amount), 0)) as balance_amount
+          MAX(0, (p.total_fee - COALESCE(SUM(pmt.amount), 0))) as balance_amount
         FROM projects p
         JOIN clients c ON p.client_id = c.id
         JOIN project_types pt ON p.project_type_id = pt.id
@@ -984,11 +984,27 @@ const queries = {
 
   async addPayment(projectId, amount, paymentDate, paymentMethod, referenceNote) {
     const projRes = await db.execute({
-      sql: 'SELECT client_id FROM projects WHERE id = ?',
+      sql: `
+        SELECT p.*,
+          COALESCE(SUM(pmt.amount), 0) as received_amount,
+          MAX(0, (p.total_fee - COALESCE(SUM(pmt.amount), 0))) as balance_amount
+        FROM projects p
+        LEFT JOIN payments pmt ON p.id = pmt.project_id
+        WHERE p.id = ?
+        GROUP BY p.id
+      `,
       args: [projectId]
     });
     const proj = projRes.rows[0];
     if (!proj) throw new Error('Project not found');
+
+    const remainingBalance = Math.max(0, proj.total_fee - proj.received_amount);
+    if (remainingBalance <= 0) {
+      throw new Error(`Project "${proj.name}" is already fully settled (₹0 balance). Cannot receive additional payments.`);
+    }
+    if (amount > remainingBalance) {
+      throw new Error(`Payment amount (₹${amount.toLocaleString('en-IN')}) exceeds the remaining project balance of ₹${remainingBalance.toLocaleString('en-IN')}`);
+    }
 
     const res = await db.execute({
       sql: `
@@ -1037,7 +1053,7 @@ const queries = {
     const totals = totalsRes.rows[0];
     const totalDeal = totals ? totals.total_deal_amount : 0;
     const totalReceived = totals ? totals.total_received : 0;
-    const totalBalance = totalDeal - totalReceived;
+    const totalBalance = Math.max(0, totalDeal - totalReceived);
 
     const projectAccountsRes = await db.execute(`
       SELECT p.id, p.name as project_name, p.location, p.status,
@@ -1045,7 +1061,7 @@ const queries = {
              pt.name as project_type_name, pt.badge_color,
              p.total_fee as deal_amount,
              COALESCE(SUM(pmt.amount), 0) as received_amount,
-             (p.total_fee - COALESCE(SUM(pmt.amount), 0)) as balance_amount,
+             MAX(0, (p.total_fee - COALESCE(SUM(pmt.amount), 0))) as balance_amount,
              MAX(pmt.payment_date) as last_payment_date
       FROM projects p
       JOIN clients c ON p.client_id = c.id
@@ -1306,12 +1322,12 @@ const queries = {
 
     const totalDeal = totals ? totals.total_deal : 0;
     const totalReceived = totals ? totals.total_received : 0;
-    const totalBalance = totalDeal - totalReceived;
+    const totalBalance = Math.max(0, totalDeal - totalReceived);
 
     let recentProjectsSql = `
       SELECT p.*, c.name as client_name, pt.name as project_type_name, pt.badge_color,
              COALESCE(SUM(pmt.amount), 0) as received_amount,
-             (p.total_fee - COALESCE(SUM(pmt.amount), 0)) as balance_amount
+             MAX(0, (p.total_fee - COALESCE(SUM(pmt.amount), 0))) as balance_amount
       FROM projects p
       JOIN clients c ON p.client_id = c.id
       JOIN project_types pt ON p.project_type_id = pt.id

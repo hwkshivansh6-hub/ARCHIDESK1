@@ -28,9 +28,10 @@ const state = {
   isGridActive: false
 };
 
-// Currency Formatter for Indian Rupees (₹)
-function formatINR(val) {
-  const num = parseFloat(val) || 0;
+// Currency Formatter for Indian Rupees (₹) - clamps negative values to 0 by default
+function formatINR(val, allowNegative = false) {
+  let num = parseFloat(val) || 0;
+  if (!allowNegative && num < 0) num = 0;
   return '₹' + num.toLocaleString('en-IN');
 }
 
@@ -482,7 +483,7 @@ function renderDashboard(stats) {
   const fin = stats.financials || {};
   const totalDeal = fin.total_deal || 0;
   const totalRec = fin.total_received || 0;
-  const totalBal = fin.total_balance || 0;
+  const totalBal = Math.max(0, fin.total_balance || 0);
 
   document.getElementById('dash-total-deal').textContent = formatINR(totalDeal);
   document.getElementById('dash-total-received').textContent = formatINR(totalRec);
@@ -563,7 +564,7 @@ function renderProjects() {
   container.innerHTML = state.projects.map(p => {
     const fee = p.total_fee || 0;
     const rec = p.received_amount || 0;
-    const bal = p.balance_amount !== undefined ? p.balance_amount : (fee - rec);
+    const bal = Math.max(0, p.balance_amount !== undefined ? p.balance_amount : (fee - rec));
     const progressPct = fee > 0 ? Math.min(100, Math.round((rec / fee) * 100)) : 0;
 
     return `
@@ -654,7 +655,7 @@ function renderWorkspace(p) {
   // Financial calculations
   const fee = p.total_fee || 0;
   const rec = p.received_amount || 0;
-  const bal = p.balance_amount !== undefined ? p.balance_amount : (fee - rec);
+  const bal = Math.max(0, p.balance_amount !== undefined ? p.balance_amount : (fee - rec));
 
   // Overview quick fin
   document.getElementById('ws-overview-fee').textContent = formatINR(fee);
@@ -939,24 +940,31 @@ async function loadAccountsSummary() {
 
     document.getElementById('acc-global-deal').textContent = formatINR(data.total_deal);
     document.getElementById('acc-global-received').textContent = formatINR(data.total_received);
-    document.getElementById('acc-global-balance').textContent = formatINR(data.total_balance);
+    document.getElementById('acc-global-balance').textContent = formatINR(Math.max(0, data.total_balance || 0));
 
     // Project breakdown table
     const pBody = document.getElementById('acc-projects-breakdown-tbody');
     if (data.project_accounts && data.project_accounts.length > 0) {
-      pBody.innerHTML = data.project_accounts.map(pa => `
+      pBody.innerHTML = data.project_accounts.map(pa => {
+        const bal = Math.max(0, pa.balance_amount !== undefined ? pa.balance_amount : (pa.deal_amount - pa.received_amount));
+        const isSettled = bal <= 0;
+        return `
         <tr>
           <td><strong style="cursor: pointer; color: var(--arch-blueprint);" onclick="openProjectWorkspace(${pa.id})">${pa.project_name}</strong></td>
           <td>${pa.client_name}</td>
           <td><span class="badge-type">${pa.project_type_name}</span></td>
           <td style="font-family: var(--font-mono);">${formatINR(pa.deal_amount)}</td>
           <td style="font-family: var(--font-mono); color: var(--arch-sage); font-weight: 600;">${formatINR(pa.received_amount)}</td>
-          <td style="font-family: var(--font-mono); color: var(--arch-terracotta); font-weight: 700;">${formatINR(pa.balance_amount)}</td>
+          <td style="font-family: var(--font-mono); color: ${isSettled ? 'var(--arch-sage)' : 'var(--arch-terracotta)'}; font-weight: 700;">${formatINR(bal)}</td>
           <td>
-            <button class="btn btn-blueprint btn-sm" onclick="openQuickReceiveModal(${pa.id})">+ Receive</button>
+            ${isSettled
+              ? `<button class="btn btn-secondary btn-sm" style="color: var(--arch-sage); border-color: var(--arch-sage); font-size: 11px; padding: 4px 8px;" onclick="openQuickReceiveModal(${pa.id})">✓ Settled</button>`
+              : `<button class="btn btn-blueprint btn-sm" onclick="openQuickReceiveModal(${pa.id})">+ Receive</button>`
+            }
           </td>
         </tr>
-      `).join('');
+      `;
+      }).join('');
     } else {
       pBody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: var(--arch-ink-muted); padding: 20px;">No projects found.</td></tr>`;
     }
@@ -1087,6 +1095,8 @@ function openNewClientModal() {
   document.getElementById('modal-client-title').textContent = 'Add New Client';
   document.getElementById('client-edit-id').value = '';
   document.getElementById('form-client').reset();
+  const phoneHint = document.getElementById('client-phone-hint');
+  if (phoneHint) phoneHint.style.display = 'none';
   openModal('modal-client');
 }
 
@@ -1098,7 +1108,11 @@ function openEditClientModal(clientId) {
   document.getElementById('modal-client-title').textContent = 'Edit Client Profile';
   document.getElementById('client-edit-id').value = c.id;
   document.getElementById('client-name').value = c.name;
-  document.getElementById('client-phone').value = c.phone || '';
+  const rawPhone = c.phone || '';
+  const cleanPhone = rawPhone.replace(/\D/g, '').slice(0, 10);
+  document.getElementById('client-phone').value = cleanPhone;
+  const phoneHint = document.getElementById('client-phone-hint');
+  if (phoneHint) phoneHint.style.display = 'none';
   document.getElementById('client-email').value = c.email || '';
   document.getElementById('client-company').value = c.company_name || '';
   document.getElementById('client-address').value = c.address || '';
@@ -1107,15 +1121,49 @@ function openEditClientModal(clientId) {
   openModal('modal-client');
 }
 
+// Show Small Pop-up Alert when receiving payment exceeds balance or project is fully paid
+function showExcessPaymentAlert(project, attemptedAmount, remainingBalance) {
+  const title = document.getElementById('excess-alert-title');
+  const msg = document.getElementById('excess-alert-message');
+  const autofillBtn = document.getElementById('btn-excess-autofill');
+
+  if (remainingBalance <= 0) {
+    title.textContent = 'Project Already Fully Paid';
+    msg.innerHTML = `Project <strong>"${project.name}"</strong> has an outstanding balance of <strong>₹0</strong>.<br><br>All agreed architectural fees (<strong>${formatINR(project.total_fee)}</strong>) have been collected. You cannot receive additional payments.`;
+    if (autofillBtn) autofillBtn.style.display = 'none';
+  } else {
+    title.textContent = 'Amount Exceeds Remaining Balance';
+    msg.innerHTML = `You entered <strong>${formatINR(attemptedAmount)}</strong>, but the outstanding balance for <strong>"${project.name}"</strong> is only <strong>${formatINR(remainingBalance)}</strong>.<br><br>Receiving more than the remaining balance is not permitted to prevent negative ledger balances.`;
+    if (autofillBtn) {
+      autofillBtn.style.display = 'block';
+      autofillBtn.textContent = `Auto-fill with Max: ${formatINR(remainingBalance)}`;
+      autofillBtn.onclick = () => {
+        const payInput = document.getElementById('pay-amount');
+        if (payInput) {
+          payInput.value = remainingBalance;
+          payInput.dispatchEvent(new Event('input'));
+        }
+        closeModal('modal-excess-payment-alert');
+        payInput.focus();
+      };
+    }
+  }
+
+  openModal('modal-excess-payment-alert');
+}
+
 // Open Receive Payment Modal
 function openReceivePaymentModal(defaultProjectId = null) {
   const projSelect = document.getElementById('pay-project');
-  projSelect.innerHTML = state.projects.map(p => `
-    <option value="${p.id}" ${p.id === defaultProjectId ? 'selected' : ''}>${p.name} — ${p.client_name}</option>
-  `).join('');
+  projSelect.innerHTML = state.projects.map(p => {
+    const bal = Math.max(0, p.balance_amount !== undefined ? p.balance_amount : ((p.total_fee || 0) - (p.received_amount || 0)));
+    return `<option value="${p.id}" ${p.id === defaultProjectId ? 'selected' : ''}>${p.name} — ${p.client_name} (Bal: ${formatINR(bal)})</option>`;
+  }).join('');
 
   document.getElementById('pay-date').value = new Date().toISOString().split('T')[0];
-  document.getElementById('pay-amount').value = '';
+  const payInput = document.getElementById('pay-amount');
+  payInput.value = '';
+  payInput.style.borderColor = '';
   document.getElementById('pay-reference').value = '';
 
   updatePaymentModalProjectSummary();
@@ -1123,6 +1171,14 @@ function openReceivePaymentModal(defaultProjectId = null) {
 }
 
 function openQuickReceiveModal(projectId) {
+  const p = state.projects.find(x => x.id === projectId);
+  if (p) {
+    const balance = Math.max(0, p.balance_amount !== undefined ? p.balance_amount : ((p.total_fee || 0) - (p.received_amount || 0)));
+    if (balance <= 0) {
+      showExcessPaymentAlert(p, 0, 0);
+      return;
+    }
+  }
   openReceivePaymentModal(projectId);
 }
 
@@ -1130,13 +1186,45 @@ function updatePaymentModalProjectSummary() {
   const pid = parseInt(document.getElementById('pay-project').value, 10);
   const p = state.projects.find(x => x.id === pid);
   const box = document.getElementById('pay-project-summary-box');
+  const payInput = document.getElementById('pay-amount');
+  const payHint = document.getElementById('pay-amount-hint');
+  const saveBtn = document.getElementById('btn-save-payment');
+
   if (p) {
     box.style.display = 'block';
+    const balance = Math.max(0, p.balance_amount !== undefined ? p.balance_amount : ((p.total_fee || 0) - (p.received_amount || 0)));
     document.getElementById('pay-box-fee').textContent = formatINR(p.total_fee);
     document.getElementById('pay-box-received').textContent = formatINR(p.received_amount);
-    document.getElementById('pay-box-balance').textContent = formatINR(p.balance_amount);
+    document.getElementById('pay-box-balance').textContent = formatINR(balance);
+
+    if (payInput) {
+      payInput.max = balance;
+      if (balance <= 0) {
+        payInput.disabled = true;
+        payInput.value = '';
+        payInput.placeholder = 'Project fully settled (₹0 balance)';
+        if (payHint) {
+          payHint.textContent = '✓ This project has been fully settled. No further payments can be received.';
+          payHint.style.color = 'var(--arch-sage)';
+          payHint.style.display = 'block';
+        }
+        if (saveBtn) saveBtn.disabled = true;
+      } else {
+        payInput.disabled = false;
+        payInput.placeholder = `Max: ₹${balance.toLocaleString('en-IN')}`;
+        if (payHint) {
+          payHint.textContent = `Maximum receivable amount: ${formatINR(balance)}`;
+          payHint.style.color = 'var(--arch-ink-muted)';
+          payHint.style.fontWeight = 'normal';
+          payHint.style.display = 'block';
+        }
+        if (saveBtn) saveBtn.disabled = false;
+      }
+    }
   } else {
     box.style.display = 'none';
+    if (payHint) payHint.style.display = 'none';
+    if (saveBtn) saveBtn.disabled = false;
   }
 }
 
@@ -1226,9 +1314,21 @@ async function handleSaveProject(e) {
 async function handleSaveClient(e) {
   e.preventDefault();
   const id = document.getElementById('client-edit-id').value;
+  const phoneVal = document.getElementById('client-phone').value.trim();
+  const cleanPhone = phoneVal.replace(/\D/g, '');
+
+  // Validate phone number: if provided, must be exactly 10 digits
+  if (phoneVal) {
+    if (cleanPhone.length !== 10) {
+      showToast('Phone number must be exactly 10 digits without letters or symbols', 'error');
+      document.getElementById('client-phone').focus();
+      return;
+    }
+  }
+
   const payload = {
     name: document.getElementById('client-name').value,
-    phone: document.getElementById('client-phone').value,
+    phone: cleanPhone || '',
     email: document.getElementById('client-email').value,
     company_name: document.getElementById('client-company').value,
     address: document.getElementById('client-address').value,
@@ -1268,10 +1368,21 @@ async function deleteClientRecord(clientId) {
 async function handleSavePayment(e) {
   e.preventDefault();
   const projectId = document.getElementById('pay-project').value;
-  const amount = document.getElementById('pay-amount').value;
+  const amountVal = document.getElementById('pay-amount').value;
+  const amount = parseFloat(amountVal);
   const paymentDate = document.getElementById('pay-date').value;
   const paymentMethod = document.getElementById('pay-method').value;
   const referenceNote = document.getElementById('pay-reference').value;
+
+  const p = state.projects.find(x => x.id === parseInt(projectId, 10));
+  if (p) {
+    const remainingBalance = Math.max(0, p.balance_amount !== undefined ? p.balance_amount : ((p.total_fee || 0) - (p.received_amount || 0)));
+    if (remainingBalance <= 0 || amount > remainingBalance) {
+      // Trigger the small pop-up modal!
+      showExcessPaymentAlert(p, amount, remainingBalance);
+      return;
+    }
+  }
 
   try {
     const res = await apiRequest('/payments', {
@@ -1860,6 +1971,85 @@ function initEventListeners() {
 
   // Payment project change
   document.getElementById('pay-project').addEventListener('change', updatePaymentModalProjectSummary);
+
+  // Client phone number input restrictions (digits only, max 10)
+  const clientPhoneInput = document.getElementById('client-phone');
+  const clientPhoneHint = document.getElementById('client-phone-hint');
+  if (clientPhoneInput) {
+    clientPhoneInput.addEventListener('input', function() {
+      const clean = this.value.replace(/\D/g, '').slice(0, 10);
+      if (this.value !== clean) {
+        this.value = clean;
+      }
+      if (clientPhoneHint) {
+        if (clean.length > 0 && clean.length < 10) {
+          clientPhoneHint.textContent = `${10 - clean.length} more digit(s) needed (10 digits required)`;
+          clientPhoneHint.style.color = 'var(--arch-terracotta)';
+          clientPhoneHint.style.display = 'block';
+        } else if (clean.length === 10) {
+          clientPhoneHint.textContent = '✓ Valid 10-digit number';
+          clientPhoneHint.style.color = 'var(--arch-sage)';
+          clientPhoneHint.style.display = 'block';
+        } else {
+          clientPhoneHint.style.display = 'none';
+        }
+      }
+    });
+
+    clientPhoneInput.addEventListener('keydown', function(e) {
+      const allowedKeys = ['Backspace', 'Tab', 'Delete', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Enter', 'Home', 'End'];
+      if (allowedKeys.includes(e.key) || e.ctrlKey || e.metaKey) return;
+      if (!/^\d$/.test(e.key)) {
+        e.preventDefault();
+      }
+    });
+
+    clientPhoneInput.addEventListener('paste', function(e) {
+      e.preventDefault();
+      const text = (e.clipboardData || window.clipboardData).getData('text');
+      const clean = text.replace(/\D/g, '').slice(0, 10);
+      this.value = clean;
+      this.dispatchEvent(new Event('input'));
+    });
+  }
+
+  // Payment amount live validation against remaining balance
+  const payAmountInput = document.getElementById('pay-amount');
+  const payAmountHint = document.getElementById('pay-amount-hint');
+  if (payAmountInput) {
+    payAmountInput.addEventListener('input', function() {
+      const pid = parseInt(document.getElementById('pay-project').value, 10);
+      const p = state.projects.find(x => x.id === pid);
+      if (!p) return;
+      const balance = Math.max(0, p.balance_amount !== undefined ? p.balance_amount : ((p.total_fee || 0) - (p.received_amount || 0)));
+      const val = parseFloat(this.value);
+
+      if (!isNaN(val) && val > balance) {
+        this.style.borderColor = 'var(--arch-terracotta)';
+        if (payAmountHint) {
+          payAmountHint.textContent = `⚠️ Amount exceeds remaining balance of ${formatINR(balance)}!`;
+          payAmountHint.style.color = 'var(--arch-terracotta)';
+          payAmountHint.style.fontWeight = '600';
+          payAmountHint.style.display = 'block';
+        }
+      } else {
+        this.style.borderColor = '';
+        if (payAmountHint) {
+          if (balance > 0) {
+            payAmountHint.textContent = `Maximum receivable amount: ${formatINR(balance)}`;
+            payAmountHint.style.color = 'var(--arch-ink-muted)';
+            payAmountHint.style.fontWeight = 'normal';
+            payAmountHint.style.display = 'block';
+          } else {
+            payAmountHint.textContent = '✓ Project fully settled (₹0 balance)';
+            payAmountHint.style.color = 'var(--arch-sage)';
+            payAmountHint.style.fontWeight = 'normal';
+            payAmountHint.style.display = 'block';
+          }
+        }
+      }
+    });
+  }
 
   // Profile modal buttons
   function openProfileModal() {

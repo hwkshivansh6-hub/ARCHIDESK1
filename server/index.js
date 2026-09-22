@@ -398,7 +398,17 @@ app.post('/api/clients', authRequired, async (req, res) => {
     if (!name || !name.trim()) {
       return res.status(400).json({ error: 'Client name is required' });
     }
-    const result = await queries.createClient(name.trim(), phone, email, address, company_name, notes, req.user.user_id);
+
+    let cleanPhone = null;
+    if (phone !== undefined && phone !== null && String(phone).trim() !== '') {
+      const trimmed = String(phone).trim();
+      if (!/^\d{10}$/.test(trimmed)) {
+        return res.status(400).json({ error: 'Phone number must be exactly 10 digits without letters or symbols' });
+      }
+      cleanPhone = trimmed;
+    }
+
+    const result = await queries.createClient(name.trim(), cleanPhone, email, address, company_name, notes, req.user.user_id);
     res.json({ success: true, id: result.lastInsertRowid, message: 'Client created' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -412,7 +422,17 @@ app.put('/api/clients/:id', authRequired, async (req, res) => {
     if (!name || !name.trim()) {
       return res.status(400).json({ error: 'Client name is required' });
     }
-    await queries.updateClient(id, name.trim(), phone, email, address, company_name, notes);
+
+    let cleanPhone = null;
+    if (phone !== undefined && phone !== null && String(phone).trim() !== '') {
+      const trimmed = String(phone).trim();
+      if (!/^\d{10}$/.test(trimmed)) {
+        return res.status(400).json({ error: 'Phone number must be exactly 10 digits without letters or symbols' });
+      }
+      cleanPhone = trimmed;
+    }
+
+    await queries.updateClient(id, name.trim(), cleanPhone, email, address, company_name, notes);
     res.json({ success: true, message: 'Client updated' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -579,6 +599,22 @@ app.post('/api/payments', authRequired, async (req, res) => {
       return res.status(400).json({ error: 'Payment date is required' });
     }
 
+    const proj = await queries.getProjectById(parseInt(project_id, 10));
+    if (!proj) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+    const remainingBalance = Math.max(0, proj.total_fee - proj.received_amount);
+    if (remainingBalance <= 0) {
+      return res.status(400).json({
+        error: `Project "${proj.name}" is already fully settled (₹0 balance). You cannot receive additional payments.`
+      });
+    }
+    if (amtNum > remainingBalance) {
+      return res.status(400).json({
+        error: `Payment amount (₹${amtNum.toLocaleString('en-IN')}) cannot exceed remaining balance of ₹${remainingBalance.toLocaleString('en-IN')}`
+      });
+    }
+
     const result = await queries.addPayment(
       parseInt(project_id, 10),
       amtNum,
@@ -602,7 +638,7 @@ app.post('/api/payments', authRequired, async (req, res) => {
       }
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(400).json({ error: err.message });
   }
 });
 

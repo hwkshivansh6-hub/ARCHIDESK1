@@ -1046,7 +1046,8 @@
           <div class="form-row-2">
             <div class="form-group">
               <label class="form-label" for="client-phone">Phone Number</label>
-              <input type="text" id="client-phone" class="form-control" placeholder="+91 98765 43210">
+              <input type="tel" id="client-phone" class="form-control" placeholder="10-digit mobile (e.g. 9876543210)" maxlength="10" inputmode="numeric" pattern="[0-9]{10}">
+              <small id="client-phone-hint" style="font-size: 11px; color: var(--arch-ink-muted); margin-top: 3px; display: none;"></small>
             </div>
             <div class="form-group">
               <label class="form-label" for="client-email">Email Address</label>
@@ -1107,6 +1108,7 @@
             <div class="form-group">
               <label class="form-label required" for="pay-amount">Amount Received (₹)</label>
               <input type="number" id="pay-amount" class="form-control" placeholder="e.g. 10000" min="0.01" step="any" required>
+              <small id="pay-amount-hint" style="font-size: 11px; color: var(--arch-ink-muted); margin-top: 3px; display: none;"></small>
             </div>
             <div class="form-group">
               <label class="form-label required" for="pay-date">Payment Date</label>
@@ -1136,6 +1138,30 @@
           <button type="submit" class="btn btn-primary" id="btn-save-payment">Save &amp; Recalculate Balance</button>
         </div>
       </form>
+    </div>
+  </div>
+
+
+  <!-- Modal: Excess Payment Alert Pop-up -->
+  <div id="modal-excess-payment-alert" class="modal-backdrop" style="z-index: 1100;">
+    <div class="modal-dialog" style="max-width: 410px; text-align: center; padding: 24px 20px; border-radius: var(--radius-xl); box-shadow: 0 25px 35px -5px rgba(0, 0, 0, 0.25);">
+      <div style="width: 58px; height: 58px; border-radius: 50%; background: #fee2e2; color: #dc2626; display: flex; align-items: center; justify-content: center; font-size: 30px; margin: 0 auto 14px; border: 2px solid #fca5a5;">
+        ⚠️
+      </div>
+      <h3 id="excess-alert-title" style="font-family: var(--font-heading); font-size: 18px; font-weight: 700; color: var(--arch-ink); margin-bottom: 8px;">
+        Amount Exceeds Balance
+      </h3>
+      <p id="excess-alert-message" style="font-size: 13px; color: var(--arch-ink-muted); line-height: 1.5; margin-bottom: 20px;">
+        <!-- Dynamic message -->
+      </p>
+      <div id="excess-alert-actions" style="display: flex; flex-direction: column; gap: 10px;">
+        <button type="button" class="btn btn-primary" id="btn-excess-autofill" style="width: 100%; justify-content: center; font-weight: 600;">
+          Auto-fill Remaining Balance
+        </button>
+        <button type="button" class="btn btn-secondary" data-close="modal-excess-payment-alert" style="width: 100%; justify-content: center;">
+          Adjust Manually
+        </button>
+      </div>
     </div>
   </div>
 
