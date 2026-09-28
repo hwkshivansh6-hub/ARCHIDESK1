@@ -176,39 +176,63 @@ async function initDatabase() {
       );
     `);
 
-    await db.execute(`CREATE INDEX IF NOT EXISTS idx_otps_email ON otps(email);`);
-    await db.execute(`CREATE INDEX IF NOT EXISTS idx_projects_client ON projects(client_id);`);
-    await db.execute(`CREATE INDEX IF NOT EXISTS idx_projects_type ON projects(project_type_id);`);
-    await db.execute(`CREATE INDEX IF NOT EXISTS idx_projects_status ON projects(status);`);
-    await db.execute(`CREATE INDEX IF NOT EXISTS idx_payments_project ON payments(project_id);`);
-    await db.execute(`CREATE INDEX IF NOT EXISTS idx_drawings_project ON drawings(project_id);`);
-    await db.execute(`CREATE INDEX IF NOT EXISTS idx_revisions_drawing ON drawing_revisions(drawing_id);`);
-    await db.execute(`CREATE INDEX IF NOT EXISTS idx_images_project ON project_images(project_id);`);
-    await db.execute(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google_id ON users(google_id) WHERE google_id IS NOT NULL;`);
+    // Safe column migration helper
+    async function safeAddColumn(table, columnDef) {
+      try {
+        await db.execute(`ALTER TABLE ${table} ADD COLUMN ${columnDef}`);
+      } catch (err) {
+        // Ignore if duplicate column name error
+        if (!err.message || !err.message.includes('duplicate column name')) {
+          console.warn(`Migration notice for ${table}:`, err.message);
+        }
+      }
+    }
+
+    // Safe index creation helper
+    async function safeCreateIndex(indexSql) {
+      try {
+        await db.execute(indexSql);
+      } catch (err) {
+        if (!err.message || !err.message.includes('already exists')) {
+          console.warn(`Index notice:`, err.message);
+        }
+      }
+    }
+
+    // 1. Safe column migrations for existing databases
+    await safeAddColumn('users', 'google_id TEXT');
+    await safeAddColumn('users', 'avatar_url TEXT');
+    await safeAddColumn('users', "auth_provider TEXT DEFAULT 'local'");
+    await safeAddColumn('clients', 'user_id INTEGER REFERENCES users(id) ON DELETE CASCADE');
+    await safeAddColumn('projects', 'user_id INTEGER REFERENCES users(id) ON DELETE CASCADE');
+    await safeAddColumn('payments', 'user_id INTEGER REFERENCES users(id) ON DELETE CASCADE');
+    await safeAddColumn('drawings', 'user_id INTEGER REFERENCES users(id) ON DELETE CASCADE');
+    await safeAddColumn('drawing_revisions', 'user_id INTEGER REFERENCES users(id) ON DELETE CASCADE');
+    await safeAddColumn('project_images', 'user_id INTEGER REFERENCES users(id) ON DELETE CASCADE');
+    await safeAddColumn('tasks', 'user_id INTEGER REFERENCES users(id) ON DELETE CASCADE');
+    await safeAddColumn('otps', 'otp_code TEXT');
+
+    // 2. Create indexes safely (guaranteed that columns exist)
+    await safeCreateIndex(`CREATE INDEX IF NOT EXISTS idx_otps_email ON otps(email);`);
+    await safeCreateIndex(`CREATE INDEX IF NOT EXISTS idx_projects_client ON projects(client_id);`);
+    await safeCreateIndex(`CREATE INDEX IF NOT EXISTS idx_projects_type ON projects(project_type_id);`);
+    await safeCreateIndex(`CREATE INDEX IF NOT EXISTS idx_projects_status ON projects(status);`);
+    await safeCreateIndex(`CREATE INDEX IF NOT EXISTS idx_payments_project ON payments(project_id);`);
+    await safeCreateIndex(`CREATE INDEX IF NOT EXISTS idx_drawings_project ON drawings(project_id);`);
+    await safeCreateIndex(`CREATE INDEX IF NOT EXISTS idx_revisions_drawing ON drawing_revisions(drawing_id);`);
+    await safeCreateIndex(`CREATE INDEX IF NOT EXISTS idx_images_project ON project_images(project_id);`);
+    await safeCreateIndex(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google_id ON users(google_id) WHERE google_id IS NOT NULL;`);
     
     // User scoping indexes for fast multi-tenant queries
-    await db.execute(`CREATE INDEX IF NOT EXISTS idx_clients_user ON clients(user_id);`);
-    await db.execute(`CREATE INDEX IF NOT EXISTS idx_projects_user ON projects(user_id);`);
-    await db.execute(`CREATE INDEX IF NOT EXISTS idx_payments_user ON payments(user_id);`);
-    await db.execute(`CREATE INDEX IF NOT EXISTS idx_drawings_user ON drawings(user_id);`);
-    await db.execute(`CREATE INDEX IF NOT EXISTS idx_revisions_user ON drawing_revisions(user_id);`);
-    await db.execute(`CREATE INDEX IF NOT EXISTS idx_images_user ON project_images(user_id);`);
-    await db.execute(`CREATE INDEX IF NOT EXISTS idx_tasks_user ON tasks(user_id);`);
+    await safeCreateIndex(`CREATE INDEX IF NOT EXISTS idx_clients_user ON clients(user_id);`);
+    await safeCreateIndex(`CREATE INDEX IF NOT EXISTS idx_projects_user ON projects(user_id);`);
+    await safeCreateIndex(`CREATE INDEX IF NOT EXISTS idx_payments_user ON payments(user_id);`);
+    await safeCreateIndex(`CREATE INDEX IF NOT EXISTS idx_drawings_user ON drawings(user_id);`);
+    await safeCreateIndex(`CREATE INDEX IF NOT EXISTS idx_revisions_user ON drawing_revisions(user_id);`);
+    await safeCreateIndex(`CREATE INDEX IF NOT EXISTS idx_images_user ON project_images(user_id);`);
+    await safeCreateIndex(`CREATE INDEX IF NOT EXISTS idx_tasks_user ON tasks(user_id);`);
 
-    // Schema upgrades / migrations for existing databases
-    try { await db.execute("ALTER TABLE users ADD COLUMN google_id TEXT;"); } catch (e) {}
-    try { await db.execute("ALTER TABLE users ADD COLUMN avatar_url TEXT;"); } catch (e) {}
-    try { await db.execute("ALTER TABLE users ADD COLUMN auth_provider TEXT DEFAULT 'local';"); } catch (e) {}
-    try { await db.execute("ALTER TABLE clients ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE;"); } catch (e) {}
-    try { await db.execute("ALTER TABLE projects ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE;"); } catch (e) {}
-    try { await db.execute("ALTER TABLE payments ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE;"); } catch (e) {}
-    try { await db.execute("ALTER TABLE drawings ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE;"); } catch (e) {}
-    try { await db.execute("ALTER TABLE drawing_revisions ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE;"); } catch (e) {}
-    try { await db.execute("ALTER TABLE project_images ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE;"); } catch (e) {}
-    try { await db.execute("ALTER TABLE tasks ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE;"); } catch (e) {}
-    try { await db.execute("ALTER TABLE otps ADD COLUMN otp_code TEXT;"); } catch (e) {}
-
-    // Backfill user_id on existing child records by joining their parent project, or fallback to user 1
+    // 3. Backfill user_id on existing child records by joining their parent project, or fallback to user 1
     try {
       await db.execute("UPDATE clients SET user_id = 1 WHERE user_id IS NULL;");
       await db.execute("UPDATE projects SET user_id = 1 WHERE user_id IS NULL;");
