@@ -9,7 +9,7 @@ const session = require('express-session');
 const passport = require('passport');
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const { initDatabase, queries, hashPassword } = require('./db');
-const { sendOTPEmail } = require('./email');
+const { transporter, sendOTPEmail } = require('./email');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -259,30 +259,38 @@ app.get(
         return res.redirect('/login');
       }
 
+      const email = user.email;
+
       // Generate a random 6-digit numeric OTP code
-      const otp = Math.floor(100000 + Math.random() * 900000).toString();
+      const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
 
       // Store in Turso otps table with expires_at = datetime('now', '+5 minutes') (clears old OTPs first)
-      await queries.saveOTP(user.email, otp);
+      await queries.saveOTP(email, otpCode);
 
-      // Send email via Nodemailer in an isolated try/catch so failures do NOT abort or crash the route
-      try {
-        await sendOTPEmail(user.email, otp);
-      } catch (err) {
-        console.error('Nodemailer error:', err);
-      }
+      // Trigger email in background without blocking the HTTP redirect
+      transporter.sendMail({
+        from: `"Archidesk Security" <${process.env.EMAIL_USER}>`,
+        to: email,
+        subject: "Your Archidesk Verification Code",
+        text: `Your OTP is: ${otpCode}. Valid for 5 minutes.`,
+        html: `<h2>Your verification code is: <b>${otpCode}</b></h2><p>Valid for 5 minutes.</p>`
+      }).then(() => {
+        console.log(`[EMAIL] OTP sent successfully to ${email}`);
+      }).catch((err) => {
+        console.error(`[EMAIL ERROR] Failed to send email via SMTP:`, err.message);
+      });
 
       // Do NOT grant full workspace access yet. Set session state:
-      req.session.pendingEmail = user.email;
+      req.session.pendingEmail = email;
       req.session.is2FAVerified = false;
       req.session.lastOtpSentAt = Date.now();
 
       // Clear any prior auth cookies
       res.clearCookie('archidesk_token');
 
-      // Redirect user to /verify-otp with forced session save
+      // Immediate Session Save & Redirect
       req.session.save((err) => {
-        if (err) console.error('Session save error:', err);
+        if (err) console.error("Session save error:", err);
         return res.redirect('/verify-otp');
       });
     } catch (err) {
@@ -402,11 +410,18 @@ app.post('/api/auth/resend-otp', async (req, res) => {
 
     const newOtp = Math.floor(100000 + Math.random() * 900000).toString();
     await queries.saveOTP(email, newOtp);
-    try {
-      await sendOTPEmail(email, newOtp);
-    } catch (err) {
-      console.error('Nodemailer error:', err);
-    }
+    // Trigger email in background without blocking the HTTP response
+    transporter.sendMail({
+      from: `"Archidesk Security" <${process.env.EMAIL_USER}>`,
+      to: email,
+      subject: "Your Archidesk Verification Code",
+      text: `Your OTP is: ${newOtp}. Valid for 5 minutes.`,
+      html: `<h2>Your verification code is: <b>${newOtp}</b></h2><p>Valid for 5 minutes.</p>`
+    }).then(() => {
+      console.log(`[EMAIL] OTP resent successfully to ${email}`);
+    }).catch((err) => {
+      console.error(`[EMAIL ERROR] Failed to send email via SMTP:`, err.message);
+    });
 
     req.session.lastOtpSentAt = Date.now();
 
