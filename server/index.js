@@ -17,8 +17,13 @@ const app = express();
 app.set('trust proxy', 1);
 const PORT = process.env.PORT || 3001;
 
-// Production HTTP Protection: Apply Helmet before any routes
-app.use(helmet());
+// Production HTTP Protection: Configure Helmet with disabled CSP to prevent blocking UI clicks/scripts
+app.use(
+  helmet({
+    contentSecurityPolicy: false, // Disables strict CSP blocking frontend click handlers and inline scripts
+    crossOriginEmbedderPolicy: false
+  })
+);
 
 // Cloudinary configuration using cloud environment credentials
 const hasCloudinary = Boolean(
@@ -79,6 +84,8 @@ async function processUploadedFile(file) {
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+// Enable Trust Proxy for Render reverse proxy / load balancer so secure cookies aren't dropped
+app.set('trust proxy', 1);
 
 // Express Session configuration
 app.use(session({
@@ -766,14 +773,18 @@ app.get('/api/clients', ensureAuthenticated, async (req, res) => {
 app.get('/api/clients/:id', ensureAuthenticated, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
+    if (isNaN(id)) {
+      return res.json({ client: null, error: 'Invalid client ID' });
+    }
     const userId = getAuthUserId(req);
     const client = await queries.getClientById(id, userId);
     if (!client) {
-      return res.status(404).json({ error: 'Client not found' });
+      return res.json({ client: null });
     }
     res.json(client);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('Client lookup error:', err);
+    res.json({ client: null, error: err.message });
   }
 });
 
@@ -858,14 +869,18 @@ app.get('/api/projects', ensureAuthenticated, async (req, res) => {
 app.get('/api/projects/:id', ensureAuthenticated, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
+    if (isNaN(id)) {
+      return res.json({ project: null, error: 'Invalid project ID' });
+    }
     const userId = getAuthUserId(req);
     const project = await queries.getProjectById(id, userId);
     if (!project) {
-      return res.status(404).json({ error: 'Project not found' });
+      return res.json({ project: null });
     }
     res.json(project);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('Project lookup error:', err);
+    res.json({ project: null, error: err.message });
   }
 });
 

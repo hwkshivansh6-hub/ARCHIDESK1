@@ -685,6 +685,11 @@ async function openProjectWorkspace(projectId) {
   state.activeProjectId = projectId;
   try {
     const project = await apiRequest(`/projects/${projectId}`);
+    if (!project || project.project === null) {
+      showToast('Project details unavailable or access denied', 'error');
+      switchNav('projects');
+      return;
+    }
     state.activeProject = project;
     renderWorkspace(project);
     switchNav('workspace');
