@@ -815,6 +815,13 @@ const queries = {
     });
   },
 
+  async deleteOTPById(id) {
+    return await db.execute({
+      sql: 'DELETE FROM otps WHERE id = ?',
+      args: [id]
+    });
+  },
+
   async getLatestOTP(email) {
     const cleanEmail = email.trim().toLowerCase();
     const res = await db.execute({

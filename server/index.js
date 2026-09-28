@@ -8,12 +8,17 @@ const { CloudinaryStorage } = require('multer-storage-cloudinary');
 const session = require('express-session');
 const passport = require('passport');
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const { initDatabase, queries, hashPassword } = require('./db');
 const { sendOtpEmail } = require('./mailer');
 
 const app = express();
 app.set('trust proxy', 1);
 const PORT = process.env.PORT || 3001;
+
+// Production HTTP Protection: Apply Helmet before any routes
+app.use(helmet());
 
 // Cloudinary configuration using cloud environment credentials
 const hasCloudinary = Boolean(
@@ -163,16 +168,40 @@ function extractToken(req) {
   return null;
 }
 
-// Helper to reliably extract the authenticated user ID from req.user or session
-function getAuthUserId(req) {
-  if (req.user && (req.user.user_id || req.user.id)) {
-    return req.user.user_id || req.user.id;
+// Helper to reliably extract the authenticated user ID strictly from session (Never from req.body/params)
+function getSessionUserId(req) {
+  const userId = req.session?.userId || req.session?.user?.id || req.session?.user?.user_id || req.user?.id || req.user?.user_id;
+  if (req.session && userId && !req.session.userId) {
+    req.session.userId = userId;
   }
-  if (req.session && (req.session.userId || (req.session.user && (req.session.user.id || req.session.user.user_id)))) {
-    return req.session.userId || req.session.user.id || req.session.user.user_id;
-  }
-  return null;
+  return userId || null;
 }
+
+const getAuthUserId = getSessionUserId;
+
+// ================= PRODUCTION SECURITY HARDENING: RATE LIMITING =================
+// General API rate limiter on /api/ (max 100 requests per 15 minutes per IP)
+const generalApiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // Limit each IP to 100 requests per window
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    error: 'Too many requests from this IP, please try again after 15 minutes.'
+  }
+});
+
+// Strict rate limiter on /api/auth/verify-otp and /api/auth/resend-otp (max 5 attempts per 15 minutes per IP)
+const otpRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5, // Limit each IP to 5 attempts per window
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    message: 'Too many OTP verification attempts. Please wait 15 minutes before trying again.',
+    error: 'Too many OTP attempts from this IP, please try again after 15 minutes.'
+  }
+});
 
 // ================= AUTHENTICATION GUARD MIDDLEWARE =================
 // Protects all /api/* data routes, rejecting unauthenticated requests with a 401 status
@@ -255,6 +284,9 @@ async function ensureAuthenticated(req, res, next) {
 // Backward compatibility aliases
 const authRequired = ensureAuthenticated;
 const ensureAuth = ensureAuthenticated;
+
+// Apply general API rate limiter to all /api/ routes
+app.use('/api/', generalApiLimiter);
 
 // Apply authentication guard to all /api routes
 app.use('/api', ensureAuthenticated);
@@ -341,8 +373,8 @@ app.get('/api/auth/otp-status', (req, res) => {
   res.json({ email: req.session.pendingEmail });
 });
 
-// POST /api/auth/verify-otp - Validates 6-digit OTP code against Turso otps table
-app.post('/api/auth/verify-otp', async (req, res) => {
+// POST /api/auth/verify-otp - Validates 6-digit OTP code against Turso otps table (Rate-limited: 5 attempts / 15m)
+app.post('/api/auth/verify-otp', otpRateLimiter, async (req, res) => {
   try {
     const { otp } = req.body;
     const email = req.session ? req.session.pendingEmail : null;
@@ -360,7 +392,10 @@ app.post('/api/auth/verify-otp', async (req, res) => {
       return res.status(400).json({ message: 'Invalid or expired verification code. Please request a new one.' });
     }
 
-    // Delete used OTP
+    // Immediately delete the matched OTP record from otps so it cannot be reused
+    if (validOtp && validOtp.id) {
+      await queries.deleteOTPById(validOtp.id);
+    }
     await queries.deleteOTP(email);
 
     // Retrieve user from Turso
@@ -410,8 +445,8 @@ app.post('/api/auth/verify-otp', async (req, res) => {
   }
 });
 
-// POST /api/auth/resend-otp - Issues new 6-digit OTP code with 60-second cooldown
-app.post('/api/auth/resend-otp', async (req, res) => {
+// POST /api/auth/resend-otp - Issues new 6-digit OTP code with 60-second cooldown (Rate-limited: 5 attempts / 15m)
+app.post('/api/auth/resend-otp', otpRateLimiter, async (req, res) => {
   try {
     const email = req.session ? req.session.pendingEmail : null;
     if (!email) {
