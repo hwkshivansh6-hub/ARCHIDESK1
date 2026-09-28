@@ -400,10 +400,10 @@ app.post('/api/auth/resend-otp', async (req, res) => {
       });
     }
 
-    const newOtp = Math.floor(100000 + Math.random() * 900000).toString();
-    await queries.saveOTP(email, newOtp);
+    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+    await queries.saveOTP(email, otpCode);
     // Trigger email via Resend asynchronously without blocking the HTTP response
-    sendOtpEmail(email, newOtp).catch((err) => {
+    sendOtpEmail(email, otpCode).catch((err) => {
       console.error('[RESEND ERROR]', err);
     });
 
