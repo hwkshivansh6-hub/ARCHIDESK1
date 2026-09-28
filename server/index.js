@@ -9,6 +9,7 @@ const session = require('express-session');
 const passport = require('passport');
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const { initDatabase, queries, hashPassword } = require('./db');
+const { sendOTPEmail } = require('./email');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -163,18 +164,29 @@ function extractToken(req) {
   return null;
 }
 
-// Auth Middleware (supports both Passport session and Bearer/Cookie token)
+// Auth Middleware (supports Passport session with 2FA check and Bearer/Cookie token)
 async function authRequired(req, res, next) {
   try {
-    // 1. Session-based authentication (Passport / Google OAuth)
+    // 1. Block access if user has pending 2FA that is not yet verified
+    if (req.session && req.session.pendingEmail && !req.session.is2FAVerified) {
+      if (req.accepts('html') && !req.is('json') && !req.path.startsWith('/api')) {
+        return res.redirect('/verify-otp');
+      }
+      return res.status(403).json({ error: '2FA verification required', redirect: '/verify-otp' });
+    }
+
+    // 2. Session-based authentication (Passport / Google OAuth)
     if (req.isAuthenticated && req.isAuthenticated() && req.user) {
+      if (req.session && req.session.is2FAVerified === false) {
+        return res.status(403).json({ error: '2FA verification required', redirect: '/verify-otp' });
+      }
       if (!req.user.user_id && req.user.id) {
         req.user.user_id = req.user.id;
       }
       return next();
     }
 
-    // 2. Token-based authentication
+    // 3. Token-based authentication
     const token = extractToken(req);
     if (!token) {
       return res.status(401).json({ error: 'Unauthorized: No token or session provided' });
@@ -209,7 +221,7 @@ app.get('/api/auth/google', (req, res, next) => {
   passport.authenticate('google', { scope: ['profile', 'email'] })(req, res, next);
 });
 
-// GET /api/auth/google/callback - Handles Google OAuth callback
+// GET /api/auth/google/callback - Handles Google OAuth callback & triggers Email OTP
 app.get(
   '/api/auth/google/callback',
   (req, res, next) => {
@@ -219,18 +231,149 @@ app.get(
     passport.authenticate('google', { failureRedirect: '/login' })(req, res, next);
   },
   async (req, res) => {
-    if (req.user && req.user.id) {
-      try {
-        const sessionToken = await queries.createSession(req.user.id);
-        res.cookie('archidesk_token', sessionToken.token, {
-          maxAge: 365 * 24 * 60 * 60 * 1000,
-          httpOnly: false
-        });
-      } catch (e) {}
+    try {
+      const user = req.user;
+      if (!user || !user.email) {
+        return res.redirect('/login');
+      }
+
+      // Generate a random 6-digit numeric OTP code
+      const otp = Math.floor(100000 + Math.random() * 900000).toString();
+
+      // Store in Turso otps table with expires_at = datetime('now', '+5 minutes') (clears old OTPs first)
+      await queries.saveOTP(user.email, otp);
+
+      // Send email via Nodemailer
+      await sendOTPEmail(user.email, otp).catch(err => {
+        console.error('Failed to send OTP email:', err.message);
+      });
+
+      // Do NOT grant full workspace access yet. Set session state:
+      req.session.pendingEmail = user.email;
+      req.session.is2FAVerified = false;
+      req.session.lastOtpSentAt = Date.now();
+
+      // Clear any prior auth cookies
+      res.clearCookie('archidesk_token');
+
+      // Redirect user to /verify-otp
+      res.redirect('/verify-otp');
+    } catch (err) {
+      console.error('Google callback error:', err);
+      res.redirect('/login');
     }
-    res.redirect('/');
   }
 );
+
+// GET /api/auth/otp-status - Returns pending email for 2FA or 401 if unauthenticated
+app.get('/api/auth/otp-status', (req, res) => {
+  if (!req.session || !req.session.pendingEmail) {
+    return res.status(401).json({ error: 'No pending OTP verification session found.' });
+  }
+  res.json({ email: req.session.pendingEmail });
+});
+
+// POST /api/auth/verify-otp - Validates OTP code, clears OTP, sets is2FAVerified = true
+app.post('/api/auth/verify-otp', async (req, res) => {
+  try {
+    const { otp } = req.body;
+    const email = req.session ? req.session.pendingEmail : null;
+
+    if (!email) {
+      return res.status(401).json({ message: 'Session expired or invalid. Please sign in again.' });
+    }
+
+    if (!otp || String(otp).trim().length !== 6) {
+      return res.status(400).json({ message: 'Please enter a valid 6-digit verification code.' });
+    }
+
+    // Validates against Turso otps table for req.session.pendingEmail where expires_at > CURRENT_TIMESTAMP
+    const validOtp = await queries.verifyOTP(email, String(otp).trim());
+    if (!validOtp) {
+      return res.status(400).json({ message: 'Invalid or expired OTP code.' });
+    }
+
+    // Delete the code from otps
+    await queries.deleteOTP(email);
+
+    // Look up user
+    const user = await queries.getUserByEmail(email);
+    if (!user) {
+      return res.status(400).json({ message: 'User account not found.' });
+    }
+
+    // Set 2FA Verified in session
+    req.session.is2FAVerified = true;
+    req.session.user = {
+      id: user.id,
+      user_id: user.id,
+      email: user.email,
+      name: user.name,
+      studio_name: user.studio_name,
+      role: user.role,
+      google_id: user.google_id,
+      avatar_url: user.avatar_url,
+      auth_provider: user.auth_provider
+    };
+    delete req.session.pendingEmail;
+
+    // Generate persistent token for client
+    const sessionData = await queries.createSession(user.id);
+    res.cookie('archidesk_token', sessionData.token, {
+      maxAge: 365 * 24 * 60 * 60 * 1000,
+      httpOnly: false
+    });
+
+    return res.json({
+      success: true,
+      redirect: '/',
+      token: sessionData.token,
+      user: req.session.user
+    });
+  } catch (err) {
+    console.error('Verify OTP error:', err);
+    res.status(500).json({ message: 'Internal server error verifying OTP.' });
+  }
+});
+
+// POST /api/auth/resend-otp - Resends OTP with 60-second cooldown protection
+app.post('/api/auth/resend-otp', async (req, res) => {
+  try {
+    const email = req.session ? req.session.pendingEmail : null;
+    if (!email) {
+      return res.status(401).json({ message: 'No pending OTP verification session found.' });
+    }
+
+    const now = Date.now();
+    const lastSent = req.session.lastOtpSentAt || 0;
+    const elapsedSeconds = Math.floor((now - lastSent) / 1000);
+
+    if (elapsedSeconds < 60) {
+      const waitSeconds = 60 - elapsedSeconds;
+      return res.status(429).json({
+        message: `Please wait ${waitSeconds} seconds before requesting a new code.`,
+        cooldownRemaining: waitSeconds
+      });
+    }
+
+    const newOtp = Math.floor(100000 + Math.random() * 900000).toString();
+    await queries.saveOTP(email, newOtp);
+    await sendOTPEmail(email, newOtp).catch(err => {
+      console.error('Failed to resend OTP email:', err.message);
+    });
+
+    req.session.lastOtpSentAt = Date.now();
+
+    res.json({
+      success: true,
+      message: `A new 6-digit verification code has been sent to ${email}.`,
+      cooldownSeconds: 60
+    });
+  } catch (err) {
+    console.error('Resend OTP error:', err);
+    res.status(500).json({ message: 'Failed to resend verification code.' });
+  }
+});
 
 // POST /api/auth/login - Standard email/username login
 app.post('/api/auth/login', async (req, res) => {
@@ -252,7 +395,10 @@ app.post('/api/auth/login', async (req, res) => {
 
     const sessionData = await queries.createSession(user.id);
 
-    // Also establish Passport session if req.logIn is available
+    // Direct password logins are authenticated and verified
+    req.session.is2FAVerified = true;
+    delete req.session.pendingEmail;
+
     if (typeof req.logIn === 'function') {
       req.logIn(user, () => {});
     }
@@ -286,9 +432,18 @@ app.post('/api/auth/login', async (req, res) => {
 // GET /api/auth/me - Returns current authenticated user or { user: null }
 app.get('/api/auth/me', async (req, res) => {
   try {
-    // 1. Session-based authentication via Passport (Google OAuth)
-    if (req.isAuthenticated && req.isAuthenticated() && req.user) {
-      const u = req.user;
+    // 1. Check if 2FA verification is currently pending
+    if (req.session && req.session.pendingEmail && !req.session.is2FAVerified) {
+      return res.json({
+        user: null,
+        pending2FA: true,
+        email: req.session.pendingEmail
+      });
+    }
+
+    // 2. Session-based authentication via Passport (Google OAuth)
+    if (req.isAuthenticated && req.isAuthenticated() && req.user && req.session?.is2FAVerified) {
+      const u = req.session.user || req.user;
       return res.json({
         user: {
           id: u.id || u.user_id,
@@ -304,7 +459,7 @@ app.get('/api/auth/me', async (req, res) => {
       });
     }
 
-    // 2. Token-based authentication
+    // 3. Token-based authentication
     const token = extractToken(req);
     if (token) {
       const sessionData = await queries.getSession(token);
@@ -326,7 +481,7 @@ app.get('/api/auth/me', async (req, res) => {
       }
     }
 
-    // 3. Unauthenticated
+    // 4. Unauthenticated
     return res.json({ user: null });
   } catch (err) {
     console.error('Auth /me error:', err);

@@ -90,8 +90,8 @@ async function apiRequest(endpoint, options = {}) {
     });
 
     if (res.status === 401) {
-      // Only logout if this was an authenticated API request, NOT during login or auth check
-      if (!endpoint.startsWith('/auth/login') && !endpoint.startsWith('/auth/me')) {
+      // Only logout if this was an authenticated API request, NOT during auth endpoints
+      if (!endpoint.startsWith('/auth/')) {
         logout();
         throw new Error('Session expired. Please log in again.');
       }
@@ -107,7 +107,7 @@ async function apiRequest(endpoint, options = {}) {
     }
 
     if (!res.ok) {
-      throw new Error(data.error || 'Server request error');
+      throw new Error(data.message || data.error || 'Server request error');
     }
     return data;
   } catch (err) {
@@ -212,6 +212,71 @@ function initPWA() {
 }
 
 // ================= INITIALIZATION & AUTH =================
+let resendTimerInterval = null;
+
+function startResendTimer(seconds = 60) {
+  const btnResend = document.getElementById('btn-resend-otp');
+  if (!btnResend) return;
+
+  if (resendTimerInterval) {
+    clearInterval(resendTimerInterval);
+    resendTimerInterval = null;
+  }
+
+  let remaining = seconds;
+  btnResend.disabled = true;
+  btnResend.innerHTML = `Resend Code (<span id="resend-timer">${remaining}</span>s)`;
+
+  resendTimerInterval = setInterval(() => {
+    remaining--;
+    const currentSpan = document.getElementById('resend-timer');
+    if (currentSpan) {
+      currentSpan.textContent = remaining;
+    }
+    if (remaining <= 0) {
+      clearInterval(resendTimerInterval);
+      resendTimerInterval = null;
+      btnResend.disabled = false;
+      btnResend.textContent = 'Resend Code';
+    }
+  }, 1000);
+}
+
+function showAuth() {
+  const otpView = document.getElementById('otp-view');
+  if (otpView) otpView.style.display = 'none';
+  document.getElementById('auth-view').style.display = 'flex';
+  document.getElementById('app-view').style.display = 'none';
+}
+
+function showOtpView(email) {
+  document.getElementById('auth-view').style.display = 'none';
+  document.getElementById('app-view').style.display = 'none';
+  const otpView = document.getElementById('otp-view');
+  if (otpView) {
+    otpView.style.display = 'flex';
+    const emailEl = document.getElementById('otp-target-email');
+    if (emailEl && email) {
+      emailEl.textContent = email;
+    }
+    const inputOtp = document.getElementById('input-otp');
+    if (inputOtp) {
+      inputOtp.value = '';
+      setTimeout(() => inputOtp.focus(), 150);
+    }
+  }
+}
+
+function showApp() {
+  const otpView = document.getElementById('otp-view');
+  if (otpView) otpView.style.display = 'none';
+  document.getElementById('auth-view').style.display = 'none';
+  document.getElementById('app-view').style.display = 'flex';
+  updateUserDisplay();
+  loadInitialData();
+  switchNav(state.currentNav || 'dashboard');
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
   initEventListeners();
   initModals();
@@ -224,14 +289,27 @@ document.addEventListener('DOMContentLoaded', async () => {
     localStorage.setItem('archidesk_token', state.token);
   }
 
+  const isOtpRoute = window.location.pathname === '/verify-otp';
+
   // Check authentication status with /api/auth/me (supports both session cookies and tokens)
   try {
     const data = await apiRequest('/auth/me');
+    if (data && data.pending2FA) {
+      if (!isOtpRoute) {
+        window.history.pushState({}, '', '/verify-otp');
+      }
+      showOtpView(data.email);
+      startResendTimer(60);
+      return;
+    }
     if (data && data.user) {
       state.user = data.user;
       if (data.token && !state.token) {
         state.token = data.token;
         localStorage.setItem('archidesk_token', data.token);
+      }
+      if (isOtpRoute) {
+        window.history.pushState({}, '', '/');
       }
       showApp();
       return;
@@ -240,21 +318,23 @@ document.addEventListener('DOMContentLoaded', async () => {
     console.warn('Initial session check:', err.message);
   }
 
+  // If user directly accessed /verify-otp, check /api/auth/otp-status
+  if (isOtpRoute) {
+    try {
+      const otpStatus = await apiRequest('/auth/otp-status');
+      if (otpStatus && otpStatus.email) {
+        showOtpView(otpStatus.email);
+        startResendTimer(60);
+        return;
+      }
+    } catch (err) {
+      console.warn('No pending OTP session found:', err.message);
+      window.history.pushState({}, '', '/');
+    }
+  }
+
   showAuth();
 });
-
-function showAuth() {
-  document.getElementById('auth-view').style.display = 'flex';
-  document.getElementById('app-view').style.display = 'none';
-}
-
-function showApp() {
-  document.getElementById('auth-view').style.display = 'none';
-  document.getElementById('app-view').style.display = 'flex';
-  updateUserDisplay();
-  loadInitialData();
-  switchNav(state.currentNav || 'dashboard');
-}
 
 function updateUserDisplay() {
   if (state.user) {
@@ -346,6 +426,9 @@ async function logout() {
   state.user = null;
   const brandMark = document.getElementById('app-brand-mark');
   if (brandMark) brandMark.innerHTML = '📐';
+  if (window.location.pathname === '/verify-otp') {
+    window.history.pushState({}, '', '/');
+  }
   showAuth();
   showToast('Signed out successfully', 'success');
 }
@@ -1678,6 +1761,106 @@ function initEventListeners() {
       showToast(err.message, 'error');
     }
   });
+
+  // OTP Verification Form
+  const otpForm = document.getElementById('otp-form');
+  if (otpForm) {
+    otpForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const inputOtp = document.getElementById('input-otp');
+      const otpVal = inputOtp ? inputOtp.value.trim() : '';
+      const btnVerify = document.getElementById('btn-verify-otp');
+
+      if (!otpVal || otpVal.length !== 6) {
+        showToast('Please enter the 6-digit verification code', 'error');
+        return;
+      }
+
+      if (btnVerify) {
+        btnVerify.disabled = true;
+        btnVerify.textContent = 'Verifying...';
+      }
+
+      try {
+        const res = await apiRequest('/auth/verify-otp', {
+          method: 'POST',
+          body: { otp: otpVal }
+        });
+
+        if (res.token) {
+          state.token = res.token;
+          localStorage.setItem('archidesk_token', res.token);
+        }
+        if (res.user) {
+          state.user = res.user;
+        }
+
+        if (window.location.pathname === '/verify-otp') {
+          window.history.pushState({}, '', '/');
+        }
+
+        showToast('Verification successful! Welcome to your workspace.', 'success');
+        showApp();
+      } catch (err) {
+        showToast(err.message || 'Invalid or expired OTP code.', 'error');
+        if (inputOtp) {
+          inputOtp.focus();
+          inputOtp.select();
+        }
+      } finally {
+        if (btnVerify) {
+          btnVerify.disabled = false;
+          btnVerify.textContent = 'Verify & Enter Workspace';
+        }
+      }
+    });
+  }
+
+  // OTP 6-Digit input numeric restrictions
+  const inputOtp = document.getElementById('input-otp');
+  if (inputOtp) {
+    inputOtp.addEventListener('input', (e) => {
+      e.target.value = e.target.value.replace(/[^0-9]/g, '').slice(0, 6);
+    });
+  }
+
+  // OTP Resend Button
+  const btnResend = document.getElementById('btn-resend-otp');
+  if (btnResend) {
+    btnResend.addEventListener('click', async () => {
+      if (btnResend.disabled) return;
+
+      btnResend.disabled = true;
+      btnResend.textContent = 'Sending...';
+
+      try {
+        const res = await apiRequest('/auth/resend-otp', {
+          method: 'POST'
+        });
+        showToast(res.message || 'A new verification code has been sent!', 'success');
+        startResendTimer(res.cooldownSeconds || 60);
+      } catch (err) {
+        showToast(err.message || 'Failed to resend code.', 'error');
+        btnResend.disabled = false;
+        btnResend.textContent = 'Resend Code';
+      }
+    });
+  }
+
+  // OTP Back to Sign In Link
+  const linkOtpBack = document.getElementById('link-otp-back-to-login');
+  if (linkOtpBack) {
+    linkOtpBack.addEventListener('click', async (e) => {
+      e.preventDefault();
+      try {
+        await apiRequest('/auth/logout', { method: 'POST' });
+      } catch (err) {}
+      if (window.location.pathname === '/verify-otp') {
+        window.history.pushState({}, '', '/');
+      }
+      showAuth();
+    });
+  }
 
 
   // Logout button

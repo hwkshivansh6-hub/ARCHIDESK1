@@ -2101,3 +2101,50 @@ body.mode-mobile-frame .mobile-table-scroll-hint {
   100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(52, 168, 83, 0); }
 }
 
+/* OTP 2FA Verification View Styles */
+.btn-outline {
+  background: var(--arch-paper);
+  color: var(--arch-ink-secondary);
+  border: 1px solid var(--arch-border);
+  border-radius: var(--radius-md);
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-outline:hover:not(:disabled) {
+  background: var(--arch-card-subtle);
+  border-color: var(--arch-border-dark);
+  color: var(--arch-ink);
+}
+
+.btn-outline:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  background: var(--arch-card-subtle);
+}
+
+.otp-input-code {
+  letter-spacing: 8px;
+  font-size: 24px;
+  text-align: center;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  padding: 12px 14px;
+  background: #fbfbf9;
+  border: 2px solid var(--arch-border);
+  border-radius: var(--radius-md);
+  color: var(--arch-ink);
+  transition: all 0.2s ease;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.otp-input-code:focus {
+  outline: none;
+  border-color: var(--arch-blueprint);
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(30, 64, 175, 0.12);
+}
+
+

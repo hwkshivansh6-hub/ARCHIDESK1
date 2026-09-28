@@ -149,6 +149,17 @@ async function initDatabase() {
       );
     `);
 
+    await db.execute(`
+      CREATE TABLE IF NOT EXISTS otps (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        email TEXT NOT NULL,
+        otp TEXT NOT NULL,
+        expires_at DATETIME NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    await db.execute(`CREATE INDEX IF NOT EXISTS idx_otps_email ON otps(email);`);
     await db.execute(`CREATE INDEX IF NOT EXISTS idx_projects_client ON projects(client_id);`);
     await db.execute(`CREATE INDEX IF NOT EXISTS idx_projects_type ON projects(project_type_id);`);
     await db.execute(`CREATE INDEX IF NOT EXISTS idx_projects_status ON projects(status);`);
@@ -699,6 +710,55 @@ const queries = {
       sql: 'DELETE FROM sessions WHERE token = ?',
       args: [token]
     });
+  },
+
+  // OTP Verification Operations
+  async saveOTP(email, otp) {
+    const cleanEmail = email.trim().toLowerCase();
+    // Clear old OTPs for this email first
+    await db.execute({
+      sql: 'DELETE FROM otps WHERE email = ?',
+      args: [cleanEmail]
+    });
+    // Store with expires_at = datetime('now', '+5 minutes')
+    await db.execute({
+      sql: `
+        INSERT INTO otps (email, otp, expires_at)
+        VALUES (?, ?, datetime('now', '+5 minutes'))
+      `,
+      args: [cleanEmail, String(otp).trim()]
+    });
+  },
+
+  async verifyOTP(email, otp) {
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanOtp = String(otp).trim();
+    const res = await db.execute({
+      sql: `
+        SELECT * FROM otps
+        WHERE email = ? AND otp = ? AND datetime(expires_at) > datetime('now')
+        ORDER BY id DESC LIMIT 1
+      `,
+      args: [cleanEmail, cleanOtp]
+    });
+    return res.rows[0] || null;
+  },
+
+  async deleteOTP(email) {
+    const cleanEmail = email.trim().toLowerCase();
+    return await db.execute({
+      sql: 'DELETE FROM otps WHERE email = ?',
+      args: [cleanEmail]
+    });
+  },
+
+  async getLatestOTP(email) {
+    const cleanEmail = email.trim().toLowerCase();
+    const res = await db.execute({
+      sql: 'SELECT * FROM otps WHERE email = ? ORDER BY id DESC LIMIT 1',
+      args: [cleanEmail]
+    });
+    return res.rows[0] || null;
   },
 
   // Project Types

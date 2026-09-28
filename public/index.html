@@ -72,6 +72,52 @@
     </div>
   </div>
 
+  <!-- ================= OTP VERIFICATION VIEW (2FA) ================= -->
+  <div id="otp-view" class="auth-page-wrapper" style="display: none;">
+    <div class="auth-card">
+      <div class="auth-logo-badge" style="background: var(--arch-blueprint);">🔐</div>
+      <div class="otp-badge" style="display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; background: var(--arch-blueprint-light); color: var(--arch-blueprint); border-radius: var(--radius-pill); font-size: 11px; font-weight: 600; margin-bottom: 12px;">
+        <span>Two-Factor Email Security</span>
+      </div>
+      <h2 style="font-family: var(--font-heading); font-size: 22px; font-weight: 700; color: var(--arch-ink); margin-bottom: 4px;">Enter Verification Code</h2>
+      <p style="font-size: 13px; color: var(--arch-ink-muted); margin-bottom: 22px; line-height: 1.5;">
+        A 6-digit code was sent to <strong id="otp-target-email" style="color: var(--arch-ink);">your email</strong>. It expires in 5 minutes.
+      </p>
+
+      <form id="otp-form">
+        <div class="form-group">
+          <label class="form-label required" for="input-otp">6-Digit Code</label>
+          <input 
+            type="text" 
+            id="input-otp" 
+            class="form-control otp-input-code" 
+            placeholder="• • • • • •" 
+            maxlength="6" 
+            pattern="[0-9]{6}" 
+            inputmode="numeric" 
+            autocomplete="one-time-code" 
+            required
+            style="letter-spacing: 8px; font-size: 24px; text-align: center; font-weight: 700; font-family: var(--font-mono); padding: 12px 14px;"
+          >
+        </div>
+
+        <button type="submit" id="btn-verify-otp" class="btn btn-primary" style="width: 100%; padding: 12px; font-size: 14px; font-weight: 600; margin-top: 6px;">
+          Verify &amp; Enter Workspace
+        </button>
+
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 20px; font-size: 12px;">
+          <button type="button" id="btn-resend-otp" class="btn btn-outline" style="padding: 7px 12px; font-size: 12px; font-weight: 500;" disabled>
+            Resend Code (<span id="resend-timer">60</span>s)
+          </button>
+
+          <a href="#" id="link-otp-back-to-login" style="color: var(--arch-ink-muted); text-decoration: none; font-size: 12px; font-weight: 500;">
+            ← Back to Sign In
+          </a>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <!-- ================= MAIN APP VIEW (PROTECTED) ================= -->
   <div id="app-view" class="app-wrapper" style="display: none;">
     
