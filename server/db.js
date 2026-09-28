@@ -154,6 +154,7 @@ async function initDatabase() {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         email TEXT NOT NULL,
         otp TEXT NOT NULL,
+        otp_code TEXT,
         expires_at DATETIME NOT NULL,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       );
@@ -177,6 +178,7 @@ async function initDatabase() {
     try { await db.execute("ALTER TABLE users ADD COLUMN auth_provider TEXT DEFAULT 'local';"); } catch (e) {}
     try { await db.execute("ALTER TABLE clients ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE;"); } catch (e) {}
     try { await db.execute("ALTER TABLE projects ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE;"); } catch (e) {}
+    try { await db.execute("ALTER TABLE otps ADD COLUMN otp_code TEXT;"); } catch (e) {}
 
     // Backfill demo data
     try {
@@ -715,6 +717,7 @@ const queries = {
   // OTP Verification Operations
   async saveOTP(email, otp) {
     const cleanEmail = email.trim().toLowerCase();
+    const cleanOtp = String(otp).trim();
     // Clear old OTPs for this email first
     await db.execute({
       sql: 'DELETE FROM otps WHERE email = ?',
@@ -723,10 +726,10 @@ const queries = {
     // Store with expires_at = datetime('now', '+5 minutes')
     await db.execute({
       sql: `
-        INSERT INTO otps (email, otp, expires_at)
-        VALUES (?, ?, datetime('now', '+5 minutes'))
+        INSERT INTO otps (email, otp, otp_code, expires_at)
+        VALUES (?, ?, ?, datetime('now', '+5 minutes'))
       `,
-      args: [cleanEmail, String(otp).trim()]
+      args: [cleanEmail, cleanOtp, cleanOtp]
     });
   },
 
@@ -736,10 +739,10 @@ const queries = {
     const res = await db.execute({
       sql: `
         SELECT * FROM otps
-        WHERE email = ? AND otp = ? AND datetime(expires_at) > datetime('now')
+        WHERE email = ? AND (otp = ? OR otp_code = ?) AND datetime(expires_at) > datetime('now')
         ORDER BY id DESC LIMIT 1
       `,
-      args: [cleanEmail, cleanOtp]
+      args: [cleanEmail, cleanOtp, cleanOtp]
     });
     return res.rows[0] || null;
   },
