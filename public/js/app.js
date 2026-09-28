@@ -70,9 +70,9 @@ async function apiRequest(endpoint, options = {}) {
     headers['Authorization'] = `Bearer ${state.token}`;
   }
 
-  // Ensure session cookies are sent for Google OAuth sessions
+  // Ensure session cookies are sent for Google OAuth sessions and 2FA verification
   if (!options.credentials) {
-    options.credentials = 'same-origin';
+    options.credentials = 'include';
   }
 
   // Handle FormData vs JSON
@@ -1784,6 +1784,7 @@ function initEventListeners() {
       try {
         const res = await apiRequest('/auth/verify-otp', {
           method: 'POST',
+          credentials: 'include',
           body: { otp: otpVal }
         });
 
@@ -1793,6 +1794,12 @@ function initEventListeners() {
         }
         if (res.user) {
           state.user = res.user;
+        }
+
+        if (res.success) {
+          showToast('Verification successful! Welcome to your workspace.', 'success');
+          window.location.replace('/');
+          return;
         }
 
         if (window.location.pathname === '/verify-otp') {

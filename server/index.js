@@ -12,10 +12,8 @@ const { initDatabase, queries, hashPassword } = require('./db');
 const { sendOTPEmail } = require('./email');
 
 const app = express();
-const PORT = process.env.PORT || 3001;
-
-// Trust reverse proxy (for Render or cloud environments)
 app.set('trust proxy', 1);
+const PORT = process.env.PORT || 3001;
 
 // Cloudinary configuration using cloud environment credentials
 const hasCloudinary = Boolean(
@@ -79,14 +77,15 @@ app.use(express.urlencoded({ extended: true }));
 
 // Express Session configuration
 app.use(session({
-  secret: process.env.SESSION_SECRET || 'archidesk-studio-session-secret-2026',
+  secret: process.env.SESSION_SECRET || 'HWK121212',
   resave: false,
   saveUninitialized: false,
   proxy: true,
   cookie: {
     secure: process.env.NODE_ENV === 'production',
-    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-    maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
+    httpOnly: true,
+    sameSite: 'lax',
+    maxAge: 24 * 60 * 60 * 1000 // 1 day
   }
 }));
 
@@ -164,7 +163,7 @@ function extractToken(req) {
   return null;
 }
 
-// Auth Middleware (supports Passport session with 2FA check and Bearer/Cookie token)
+// Auth Middleware (supports direct session, Passport session with 2FA check, and Bearer/Cookie token)
 async function authRequired(req, res, next) {
   try {
     // 1. Block access if user has pending 2FA that is not yet verified
@@ -175,7 +174,16 @@ async function authRequired(req, res, next) {
       return res.status(403).json({ error: '2FA verification required', redirect: '/verify-otp' });
     }
 
-    // 2. Session-based authentication (Passport / Google OAuth)
+    // 2. Direct session user check: Accept if session has user and is 2FA verified
+    if (req.session && req.session.user && req.session.is2FAVerified === true) {
+      req.user = req.session.user;
+      if (!req.user.user_id && req.user.id) {
+        req.user.user_id = req.user.id;
+      }
+      return next();
+    }
+
+    // 3. Session-based authentication (Passport / Google OAuth)
     if (req.isAuthenticated && req.isAuthenticated() && req.user) {
       if (req.session && req.session.is2FAVerified === false) {
         return res.status(403).json({ error: '2FA verification required', redirect: '/verify-otp' });
@@ -204,6 +212,8 @@ async function authRequired(req, res, next) {
     res.status(500).json({ error: 'Internal server error during authentication' });
   }
 }
+
+const ensureAuth = authRequired;
 
 // ================= AUTH ROUTES =================
 
@@ -256,8 +266,11 @@ app.get(
       // Clear any prior auth cookies
       res.clearCookie('archidesk_token');
 
-      // Redirect user to /verify-otp
-      res.redirect('/verify-otp');
+      // Redirect user to /verify-otp with forced session save
+      req.session.save((err) => {
+        if (err) console.error('Session save error on Google callback:', err);
+        res.redirect('/verify-otp');
+      });
     } catch (err) {
       console.error('Google callback error:', err);
       res.redirect('/login');
@@ -324,11 +337,17 @@ app.post('/api/auth/verify-otp', async (req, res) => {
       httpOnly: false
     });
 
-    return res.json({
-      success: true,
-      redirect: '/',
-      token: sessionData.token,
-      user: req.session.user
+    req.session.save((err) => {
+      if (err) {
+        console.error('Session save error on verify-otp:', err);
+        return res.status(500).json({ error: 'Session save error' });
+      }
+      return res.json({
+        success: true,
+        redirect: '/',
+        token: sessionData.token,
+        user: req.session.user
+      });
     });
   } catch (err) {
     console.error('Verify OTP error:', err);
@@ -441,7 +460,25 @@ app.get('/api/auth/me', async (req, res) => {
       });
     }
 
-    // 2. Session-based authentication via Passport (Google OAuth)
+    // 2. Direct session user check: Accept if session has user and is 2FA verified
+    if (req.session && req.session.user && req.session.is2FAVerified === true) {
+      const u = req.session.user;
+      return res.json({
+        user: {
+          id: u.id || u.user_id,
+          user_id: u.id || u.user_id,
+          email: u.email,
+          name: u.name,
+          studio_name: u.studio_name,
+          role: u.role,
+          google_id: u.google_id,
+          avatar_url: u.avatar_url,
+          auth_provider: u.auth_provider
+        }
+      });
+    }
+
+    // 3. Session-based authentication via Passport (Google OAuth)
     if (req.isAuthenticated && req.isAuthenticated() && req.user && req.session?.is2FAVerified) {
       const u = req.session.user || req.user;
       return res.json({
