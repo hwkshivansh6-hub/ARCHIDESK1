@@ -63,11 +63,16 @@ function showToast(msg, type = 'success') {
   }, 3200);
 }
 
-// API Helper with Auth Bearer Token
+// API Helper with Auth Bearer Token & Session Cookie support
 async function apiRequest(endpoint, options = {}) {
   const headers = options.headers || {};
   if (state.token) {
     headers['Authorization'] = `Bearer ${state.token}`;
+  }
+
+  // Ensure session cookies are sent for Google OAuth sessions
+  if (!options.credentials) {
+    options.credentials = 'same-origin';
   }
 
   // Handle FormData vs JSON
@@ -85,8 +90,8 @@ async function apiRequest(endpoint, options = {}) {
     });
 
     if (res.status === 401) {
-      // Only logout if this was an authenticated API request, NOT during login
-      if (!endpoint.startsWith('/auth/login')) {
+      // Only logout if this was an authenticated API request, NOT during login or auth check
+      if (!endpoint.startsWith('/auth/login') && !endpoint.startsWith('/auth/me')) {
         logout();
         throw new Error('Session expired. Please log in again.');
       }
@@ -212,17 +217,30 @@ document.addEventListener('DOMContentLoaded', async () => {
   initModals();
   initPWA();
 
-  if (state.token) {
-    try {
-      const data = await apiRequest('/auth/me');
-      state.user = data.user;
-      showApp();
-    } catch (err) {
-      showAuth();
-    }
-  } else {
-    showAuth();
+  // Read archidesk_token from cookie if set (e.g. following Google OAuth callback)
+  const cookieMatch = document.cookie.match(/archidesk_token=([^;]+)/);
+  if (cookieMatch && !state.token) {
+    state.token = decodeURIComponent(cookieMatch[1]);
+    localStorage.setItem('archidesk_token', state.token);
   }
+
+  // Check authentication status with /api/auth/me (supports both session cookies and tokens)
+  try {
+    const data = await apiRequest('/auth/me');
+    if (data && data.user) {
+      state.user = data.user;
+      if (data.token && !state.token) {
+        state.token = data.token;
+        localStorage.setItem('archidesk_token', data.token);
+      }
+      showApp();
+      return;
+    }
+  } catch (err) {
+    console.warn('Initial session check:', err.message);
+  }
+
+  showAuth();
 });
 
 function showAuth() {
@@ -317,18 +335,19 @@ function updateGreeting() {
   }
 }
 
-function logout() {
-  if (state.token) {
-    apiRequest('/auth/logout', { method: 'POST' }).catch(() => {});
-  }
+async function logout() {
+  try {
+    await apiRequest('/auth/logout', { method: 'POST' });
+  } catch (err) {}
   localStorage.removeItem('archidesk_token');
   sessionStorage.removeItem('archidesk_token');
+  document.cookie = 'archidesk_token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
   state.token = null;
   state.user = null;
   const brandMark = document.getElementById('app-brand-mark');
   if (brandMark) brandMark.innerHTML = '📐';
   showAuth();
-  showToast('Logged out successfully', 'success');
+  showToast('Signed out successfully', 'success');
 }
 
 

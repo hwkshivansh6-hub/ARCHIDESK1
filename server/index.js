@@ -5,10 +5,16 @@ const path = require('path');
 const multer = require('multer');
 const cloudinary = require('cloudinary').v2;
 const { CloudinaryStorage } = require('multer-storage-cloudinary');
+const session = require('express-session');
+const passport = require('passport');
+const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const { initDatabase, queries, hashPassword } = require('./db');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+
+// Trust reverse proxy (for Render or cloud environments)
+app.set('trust proxy', 1);
 
 // Cloudinary configuration using cloud environment credentials
 const hasCloudinary = Boolean(
@@ -66,29 +72,120 @@ async function processUploadedFile(file) {
 }
 
 // Middleware
-app.use(cors());
+app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Express Session configuration
+app.use(session({
+  secret: process.env.SESSION_SECRET || 'archidesk-studio-session-secret-2026',
+  resave: false,
+  saveUninitialized: false,
+  proxy: true,
+  cookie: {
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+    maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
+  }
+}));
+
+// Initialize Passport and Session
+app.use(passport.initialize());
+app.use(passport.session());
+
+// Passport User Serialization
+passport.serializeUser((user, done) => {
+  done(null, user.id || user.user_id);
+});
+
+passport.deserializeUser(async (id, done) => {
+  try {
+    const user = await queries.getUserById(id);
+    if (user) {
+      user.user_id = user.id;
+    }
+    done(null, user);
+  } catch (err) {
+    done(err, null);
+  }
+});
+
+// Configure Google OAuth 2.0 Strategy
+const googleClientId = process.env.GOOGLE_CLIENT_ID;
+const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET;
+const googleCallbackUrl = process.env.GOOGLE_CALLBACK_URL || '/api/auth/google/callback';
+
+if (googleClientId && googleClientSecret) {
+  passport.use(new GoogleStrategy({
+    clientID: googleClientId,
+    clientSecret: googleClientSecret,
+    callbackURL: googleCallbackUrl
+  }, async (accessToken, refreshToken, profile, done) => {
+    try {
+      const google_id = profile.id;
+      const email = profile.emails && profile.emails[0] ? profile.emails[0].value : null;
+      const name = profile.displayName || (profile.name ? `${profile.name.givenName || ''} ${profile.name.familyName || ''}`.trim() : 'Google Architect');
+      const avatar_url = profile.photos && profile.photos[0] ? profile.photos[0].value : null;
+
+      const user = await queries.createOrUpdateGoogleUser({
+        googleId: google_id,
+        email,
+        name,
+        avatarUrl: avatar_url
+      });
+      user.user_id = user.id;
+      return done(null, user);
+    } catch (err) {
+      console.error('Google OAuth verification error:', err);
+      return done(err, null);
+    }
+  }));
+} else {
+  console.warn('⚠️ Google OAuth: GOOGLE_CLIENT_ID and/or GOOGLE_CLIENT_SECRET not configured.');
+}
 
 // Serve static client assets
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
-// Auth Middleware
+// Helper to extract session token from Authorization header, query, or cookie
+function extractToken(req) {
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    return authHeader.replace('Bearer ', '').trim();
+  }
+  if (req.query && req.query.token) {
+    return req.query.token;
+  }
+  if (req.headers.cookie) {
+    const match = req.headers.cookie.match(/archidesk_token=([^;]+)/);
+    if (match) return decodeURIComponent(match[1]);
+  }
+  return null;
+}
+
+// Auth Middleware (supports both Passport session and Bearer/Cookie token)
 async function authRequired(req, res, next) {
   try {
-    const authHeader = req.headers.authorization;
-    const token = authHeader ? authHeader.replace('Bearer ', '').trim() : req.query.token;
-
-    if (!token) {
-      return res.status(401).json({ error: 'Unauthorized: No token provided' });
+    // 1. Session-based authentication (Passport / Google OAuth)
+    if (req.isAuthenticated && req.isAuthenticated() && req.user) {
+      if (!req.user.user_id && req.user.id) {
+        req.user.user_id = req.user.id;
+      }
+      return next();
     }
 
-    const session = await queries.getSession(token);
-    if (!session) {
+    // 2. Token-based authentication
+    const token = extractToken(req);
+    if (!token) {
+      return res.status(401).json({ error: 'Unauthorized: No token or session provided' });
+    }
+
+    const sessionData = await queries.getSession(token);
+    if (!sessionData) {
       return res.status(401).json({ error: 'Unauthorized: Session expired or invalid' });
     }
 
-    req.user = session;
+    req.user = sessionData;
     next();
   } catch (err) {
     console.error('Auth middleware error:', err);
@@ -97,6 +194,45 @@ async function authRequired(req, res, next) {
 }
 
 // ================= AUTH ROUTES =================
+
+// GET /api/auth/google - Initiates Google OAuth authentication
+app.get('/api/auth/google', (req, res, next) => {
+  if (!googleClientId || !googleClientSecret) {
+    return res.status(503).send(
+      '<div style="font-family:sans-serif;padding:32px;max-width:520px;margin:50px auto;border:1px solid #e2e8f0;border-radius:12px;text-align:center;background:#fff;box-shadow:0 4px 12px rgba(0,0,0,0.06);">' +
+      '<h2 style="color:#0f172a;margin-bottom:8px;">Google OAuth 2.0 Credentials Pending</h2>' +
+      '<p style="color:#64748b;font-size:14px;line-height:1.5;">Please configure <code>GOOGLE_CLIENT_ID</code> and <code>GOOGLE_CLIENT_SECRET</code> in your <code>.env</code> file or hosting environment to activate Google Sign-In.</p>' +
+      '<a href="/" style="display:inline-block;padding:10px 22px;background:#2563eb;color:#fff;text-decoration:none;border-radius:8px;font-weight:600;font-size:14px;margin-top:16px;">Return to Workspace Login</a>' +
+      '</div>'
+    );
+  }
+  passport.authenticate('google', { scope: ['profile', 'email'] })(req, res, next);
+});
+
+// GET /api/auth/google/callback - Handles Google OAuth callback
+app.get(
+  '/api/auth/google/callback',
+  (req, res, next) => {
+    if (!googleClientId || !googleClientSecret) {
+      return res.redirect('/login');
+    }
+    passport.authenticate('google', { failureRedirect: '/login' })(req, res, next);
+  },
+  async (req, res) => {
+    if (req.user && req.user.id) {
+      try {
+        const sessionToken = await queries.createSession(req.user.id);
+        res.cookie('archidesk_token', sessionToken.token, {
+          maxAge: 365 * 24 * 60 * 60 * 1000,
+          httpOnly: false
+        });
+      } catch (e) {}
+    }
+    res.redirect('/');
+  }
+);
+
+// POST /api/auth/login - Standard email/username login
 app.post('/api/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -114,16 +250,31 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(401).json({ error: 'Incorrect password. Please try again.' });
     }
 
-    const session = await queries.createSession(user.id);
+    const sessionData = await queries.createSession(user.id);
+
+    // Also establish Passport session if req.logIn is available
+    if (typeof req.logIn === 'function') {
+      req.logIn(user, () => {});
+    }
+
+    res.cookie('archidesk_token', sessionData.token, {
+      maxAge: 365 * 24 * 60 * 60 * 1000,
+      httpOnly: false
+    });
+
     res.json({
-      token: session.token,
-      expiresAt: session.expiresAt,
+      token: sessionData.token,
+      expiresAt: sessionData.expiresAt,
       user: {
         id: user.id,
+        user_id: user.id,
         email: user.email,
         name: user.name,
         studio_name: user.studio_name,
-        role: user.role
+        role: user.role,
+        google_id: user.google_id,
+        avatar_url: user.avatar_url,
+        auth_provider: user.auth_provider
       }
     });
   } catch (err) {
@@ -132,6 +283,92 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
+// GET /api/auth/me - Returns current authenticated user or { user: null }
+app.get('/api/auth/me', async (req, res) => {
+  try {
+    // 1. Session-based authentication via Passport (Google OAuth)
+    if (req.isAuthenticated && req.isAuthenticated() && req.user) {
+      const u = req.user;
+      return res.json({
+        user: {
+          id: u.id || u.user_id,
+          user_id: u.id || u.user_id,
+          email: u.email,
+          name: u.name,
+          studio_name: u.studio_name,
+          role: u.role,
+          google_id: u.google_id,
+          avatar_url: u.avatar_url,
+          auth_provider: u.auth_provider
+        }
+      });
+    }
+
+    // 2. Token-based authentication
+    const token = extractToken(req);
+    if (token) {
+      const sessionData = await queries.getSession(token);
+      if (sessionData) {
+        return res.json({
+          user: {
+            id: sessionData.user_id,
+            user_id: sessionData.user_id,
+            email: sessionData.email,
+            name: sessionData.name,
+            studio_name: sessionData.studio_name,
+            role: sessionData.role,
+            google_id: sessionData.google_id,
+            avatar_url: sessionData.avatar_url,
+            auth_provider: sessionData.auth_provider
+          },
+          token: sessionData.token
+        });
+      }
+    }
+
+    // 3. Unauthenticated
+    return res.json({ user: null });
+  } catch (err) {
+    console.error('Auth /me error:', err);
+    return res.json({ user: null });
+  }
+});
+
+// POST /api/auth/logout - Destroys session, clears cookies, returns { success: true }
+app.post('/api/auth/logout', async (req, res) => {
+  try {
+    const token = extractToken(req) || req.body?.token;
+    if (token) {
+      await queries.deleteSession(token);
+    }
+
+    res.clearCookie('archidesk_token');
+    res.clearCookie('connect.sid');
+
+    const finishLogout = () => {
+      if (req.session) {
+        req.session.destroy(() => {
+          res.json({ success: true, message: 'Logged out successfully' });
+        });
+      } else {
+        res.json({ success: true, message: 'Logged out successfully' });
+      }
+    };
+
+    if (typeof req.logout === 'function') {
+      req.logout((err) => {
+        finishLogout();
+      });
+    } else {
+      finishLogout();
+    }
+  } catch (err) {
+    console.error('Logout error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/auth/profile - Updates architect profile
 app.put('/api/auth/profile', authRequired, async (req, res) => {
   try {
     const { name, studio_name, email, role } = req.body;
@@ -139,48 +376,21 @@ app.put('/api/auth/profile', authRequired, async (req, res) => {
       return res.status(400).json({ error: 'Principal architect/engineer name is required' });
     }
 
+    const currentUserId = req.user.user_id || req.user.id;
     await queries.updateUserProfile(
-      req.user.user_id,
+      currentUserId,
       name.trim(),
       studio_name && studio_name.trim() ? studio_name.trim() : 'SHASWAT DESIGNS',
       email && email.trim() ? email.trim() : req.user.email,
       role && role.trim() ? role.trim() : req.user.role
     );
 
-    const updated = await queries.getUserById(req.user.user_id);
+    const updated = await queries.getUserById(currentUserId);
     res.json({ success: true, message: 'Principal profile updated successfully', user: updated });
   } catch (err) {
     console.error('Profile update error:', err);
     res.status(500).json({ error: err.message });
   }
-});
-
-app.post('/api/auth/logout', async (req, res) => {
-  try {
-    const authHeader = req.headers.authorization;
-    const token = authHeader ? authHeader.replace('Bearer ', '').trim() : req.body.token;
-    if (token) {
-      await queries.deleteSession(token);
-    }
-    res.json({ success: true, message: 'Logged out successfully' });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.get('/api/auth/me', authRequired, (req, res) => {
-  res.json({
-    user: {
-      id: req.user.user_id,
-      email: req.user.email,
-      name: req.user.name,
-      studio_name: req.user.studio_name,
-      role: req.user.role,
-      google_id: req.user.google_id,
-      avatar_url: req.user.avatar_url,
-      auth_provider: req.user.auth_provider
-    }
-  });
 });
 
 // ================= DASHBOARD SUMMARY =================
