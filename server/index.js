@@ -163,69 +163,101 @@ function extractToken(req) {
   return null;
 }
 
-// Auth Middleware (supports direct session, Passport session with 2FA check, and Bearer/Cookie token)
-async function authRequired(req, res, next) {
+// Helper to reliably extract the authenticated user ID from req.user or session
+function getAuthUserId(req) {
+  if (req.user && (req.user.user_id || req.user.id)) {
+    return req.user.user_id || req.user.id;
+  }
+  if (req.session && (req.session.userId || (req.session.user && (req.session.user.id || req.session.user.user_id)))) {
+    return req.session.userId || req.session.user.id || req.session.user.user_id;
+  }
+  return null;
+}
+
+// ================= AUTHENTICATION GUARD MIDDLEWARE =================
+// Protects all /api/* data routes, rejecting unauthenticated requests with a 401 status
+async function ensureAuthenticated(req, res, next) {
   try {
-    // 0. Explicitly allow /verify-otp and auth endpoints to bypass middleware
-    if (
-      req.path === '/verify-otp' ||
-      req.path === '/login' ||
-      req.path.startsWith('/api/auth/')
-    ) {
+    const rawPath = req.originalUrl ? req.originalUrl.split('?')[0] : (req.baseUrl || '') + req.path;
+    const currentPath = rawPath.replace(/\/+$/, '') || '/';
+
+    // Allow unauthenticated access to public auth endpoints, OTP verification, and login assets
+    const publicAuthPaths = [
+      '/api/auth/login',
+      '/api/auth/google',
+      '/api/auth/google/callback',
+      '/api/auth/verify-otp',
+      '/api/auth/resend-otp',
+      '/api/auth/otp-status',
+      '/api/auth/logout',
+      '/api/auth/me',
+      '/verify-otp',
+      '/login'
+    ];
+
+    if (publicAuthPaths.some(p => currentPath === p || currentPath.startsWith('/api/auth/google'))) {
       return next();
     }
 
     // 1. Block access if user has pending 2FA that is not yet verified
     if (req.session && req.session.pendingEmail && !req.session.is2FAVerified) {
-      if (req.path === '/verify-otp') {
-        return next();
-      }
-      if (req.accepts('html') && !req.is('json') && !req.path.startsWith('/api')) {
+      if (req.accepts('html') && !req.is('json') && !currentPath.startsWith('/api')) {
         return res.redirect('/verify-otp');
       }
-      return res.status(403).json({ error: '2FA verification required', redirect: '/verify-otp' });
+      return res.status(401).json({ error: 'Unauthorized: 2FA verification required', redirect: '/verify-otp' });
     }
 
     // 2. Direct session user check: Accept if session has user and is 2FA verified
     if (req.session && req.session.user && req.session.is2FAVerified === true) {
-      req.user = req.session.user;
-      if (!req.user.user_id && req.user.id) {
-        req.user.user_id = req.user.id;
-      }
+      const u = req.session.user;
+      const uid = u.id || u.user_id;
+      req.user = { ...u, id: uid, user_id: uid };
+      req.session.userId = uid;
       return next();
     }
 
-    // 3. Session-based authentication (Passport / Google OAuth)
+    // 3. Passport session check (Google OAuth)
     if (req.isAuthenticated && req.isAuthenticated() && req.user) {
       if (req.session && req.session.is2FAVerified === false) {
-        return res.status(403).json({ error: '2FA verification required', redirect: '/verify-otp' });
+        return res.status(401).json({ error: 'Unauthorized: 2FA verification required', redirect: '/verify-otp' });
       }
-      if (!req.user.user_id && req.user.id) {
-        req.user.user_id = req.user.id;
+      const uid = req.user.id || req.user.user_id;
+      req.user.id = uid;
+      req.user.user_id = uid;
+      if (req.session) req.session.userId = uid;
+      return next();
+    }
+
+    // 4. Token-based authentication (Bearer header, cookie archidesk_token, query)
+    const token = extractToken(req);
+    if (token) {
+      const sessionData = await queries.getSession(token);
+      if (!sessionData) {
+        return res.status(401).json({ error: 'Unauthorized: Session expired or invalid' });
+      }
+      const uid = sessionData.user_id || sessionData.id;
+      req.user = { ...sessionData, id: uid, user_id: uid };
+      if (req.session) {
+        req.session.userId = uid;
+        req.session.is2FAVerified = true;
       }
       return next();
     }
 
-    // 3. Token-based authentication
-    const token = extractToken(req);
-    if (!token) {
-      return res.status(401).json({ error: 'Unauthorized: No token or session provided' });
-    }
-
-    const sessionData = await queries.getSession(token);
-    if (!sessionData) {
-      return res.status(401).json({ error: 'Unauthorized: Session expired or invalid' });
-    }
-
-    req.user = sessionData;
-    next();
+    // Reject all other unauthenticated requests with 401
+    return res.status(401).json({ error: 'Unauthorized: Authentication required to access this resource' });
   } catch (err) {
-    console.error('Auth middleware error:', err);
-    res.status(500).json({ error: 'Internal server error during authentication' });
+    console.error('ensureAuthenticated middleware error:', err);
+    return res.status(500).json({ error: 'Internal server error during authentication' });
   }
 }
 
-const ensureAuth = authRequired;
+// Backward compatibility aliases
+const authRequired = ensureAuthenticated;
+const ensureAuth = ensureAuthenticated;
+
+// Apply authentication guard to all /api routes
+app.use('/api', ensureAuthenticated);
 
 // ================= AUTH ROUTES =================
 
@@ -240,18 +272,16 @@ app.get('/api/auth/google', (req, res, next) => {
       '</div>'
     );
   }
-  passport.authenticate('google', { scope: ['profile', 'email'] })(req, res, next);
+  passport.authenticate('google', {
+    scope: ['profile', 'email'],
+    prompt: 'select_account'
+  })(req, res, next);
 });
 
-// GET /api/auth/google/callback - Handles Google OAuth callback & triggers Email OTP
+// GET /api/auth/google/callback - Google OAuth callback handler with 2FA OTP issuance
 app.get(
   '/api/auth/google/callback',
-  (req, res, next) => {
-    if (!googleClientId || !googleClientSecret) {
-      return res.redirect('/login');
-    }
-    passport.authenticate('google', { failureRedirect: '/login' })(req, res, next);
-  },
+  passport.authenticate('google', { failureRedirect: '/login?error=oauth_failed' }),
   async (req, res) => {
     try {
       const user = req.user;
@@ -264,7 +294,7 @@ app.get(
       // Generate a random 6-digit numeric OTP code
       const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
 
-      // Store in Turso otps table with expires_at = datetime('now', '+5 minutes') (clears old OTPs first)
+      // Store in Turso otps table with expires_at = datetime('now', '+5 minutes')
       await queries.saveOTP(email, otpCode);
 
       // Trigger email via Resend asynchronously in background without blocking the HTTP redirect
@@ -272,7 +302,7 @@ app.get(
         console.error('[RESEND ERROR]', err);
       });
 
-      // Do NOT grant full workspace access yet. Set session state:
+      // Set session state:
       req.session.pendingEmail = email;
       req.session.is2FAVerified = false;
       req.session.lastOtpSentAt = Date.now();
@@ -300,41 +330,40 @@ app.get('/verify-otp', (req, res) => {
   if (req.session && (req.session.pendingEmail || req.session.user)) {
     return res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
   }
-  return res.redirect('/');
+  res.redirect('/login');
 });
 
-// GET /api/auth/otp-status - Returns pending email for 2FA or 401 if unauthenticated
+// GET /api/auth/otp-status - Returns whether 2FA OTP is required for current session
 app.get('/api/auth/otp-status', (req, res) => {
   if (!req.session || !req.session.pendingEmail) {
-    return res.status(401).json({ error: 'No pending OTP verification session found.' });
+    return res.status(400).json({ error: 'No pending 2FA session found' });
   }
   res.json({ email: req.session.pendingEmail });
 });
 
-// POST /api/auth/verify-otp - Validates OTP code, clears OTP, sets is2FAVerified = true
+// POST /api/auth/verify-otp - Validates 6-digit OTP code against Turso otps table
 app.post('/api/auth/verify-otp', async (req, res) => {
   try {
     const { otp } = req.body;
     const email = req.session ? req.session.pendingEmail : null;
 
     if (!email) {
-      return res.status(401).json({ message: 'Session expired or invalid. Please sign in again.' });
+      return res.status(400).json({ message: 'No pending verification session. Please log in again.' });
     }
-
     if (!otp || String(otp).trim().length !== 6) {
       return res.status(400).json({ message: 'Please enter a valid 6-digit verification code.' });
     }
 
-    // Validates against Turso otps table for req.session.pendingEmail where expires_at > CURRENT_TIMESTAMP
+    // Validates against Turso otps table where expires_at > CURRENT_TIMESTAMP
     const validOtp = await queries.verifyOTP(email, String(otp).trim());
     if (!validOtp) {
-      return res.status(400).json({ message: 'Invalid or expired OTP code.' });
+      return res.status(400).json({ message: 'Invalid or expired verification code. Please request a new one.' });
     }
 
-    // Delete the code from otps
+    // Delete used OTP
     await queries.deleteOTP(email);
 
-    // Look up user
+    // Retrieve user from Turso
     const user = await queries.getUserByEmail(email);
     if (!user) {
       return res.status(400).json({ message: 'User account not found.' });
@@ -342,6 +371,7 @@ app.post('/api/auth/verify-otp', async (req, res) => {
 
     // Set 2FA Verified in session
     req.session.is2FAVerified = true;
+    req.session.userId = user.id;
     req.session.user = {
       id: user.id,
       user_id: user.id,
@@ -365,33 +395,32 @@ app.post('/api/auth/verify-otp', async (req, res) => {
     req.session.save((err) => {
       if (err) {
         console.error('Session save error on verify-otp:', err);
-        return res.status(500).json({ error: 'Session save error' });
+        return res.status(500).json({ message: 'Failed to finalize authenticated session.' });
       }
       return res.json({
         success: true,
-        redirect: '/',
+        message: 'Identity verified successfully. Welcome to SHASWAT DESIGNS Workspace.',
         token: sessionData.token,
         user: req.session.user
       });
     });
   } catch (err) {
     console.error('Verify OTP error:', err);
-    res.status(500).json({ message: 'Internal server error verifying OTP.' });
+    res.status(500).json({ message: 'Failed to verify OTP. Please try again.' });
   }
 });
 
-// POST /api/auth/resend-otp - Resends OTP with 60-second cooldown protection
+// POST /api/auth/resend-otp - Issues new 6-digit OTP code with 60-second cooldown
 app.post('/api/auth/resend-otp', async (req, res) => {
   try {
     const email = req.session ? req.session.pendingEmail : null;
     if (!email) {
-      return res.status(401).json({ message: 'No pending OTP verification session found.' });
+      return res.status(400).json({ message: 'No active verification session. Please log in first.' });
     }
 
-    const now = Date.now();
+    // 60-second cooldown enforcement
     const lastSent = req.session.lastOtpSentAt || 0;
-    const elapsedSeconds = Math.floor((now - lastSent) / 1000);
-
+    const elapsedSeconds = Math.floor((Date.now() - lastSent) / 1000);
     if (elapsedSeconds < 60) {
       const waitSeconds = 60 - elapsedSeconds;
       return res.status(429).json({
@@ -442,6 +471,18 @@ app.post('/api/auth/login', async (req, res) => {
 
     // Direct password logins are authenticated and verified
     req.session.is2FAVerified = true;
+    req.session.userId = user.id;
+    req.session.user = {
+      id: user.id,
+      user_id: user.id,
+      email: user.email,
+      name: user.name,
+      studio_name: user.studio_name,
+      role: user.role,
+      google_id: user.google_id,
+      avatar_url: user.avatar_url,
+      auth_provider: user.auth_provider
+    };
     delete req.session.pendingEmail;
 
     if (typeof req.logIn === 'function') {
@@ -474,7 +515,7 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
-// GET /api/auth/me - Returns current authenticated user or { user: null }
+// GET /api/auth/me - Retrieves authenticated user session profile
 app.get('/api/auth/me', async (req, res) => {
   try {
     // 1. Check if 2FA verification is currently pending
@@ -522,7 +563,7 @@ app.get('/api/auth/me', async (req, res) => {
       });
     }
 
-    // 3. Token-based authentication
+    // 4. Token-based authentication
     const token = extractToken(req);
     if (token) {
       const sessionData = await queries.getSession(token);
@@ -544,7 +585,7 @@ app.get('/api/auth/me', async (req, res) => {
       }
     }
 
-    // 4. Unauthenticated
+    // 5. Unauthenticated
     return res.json({ user: null });
   } catch (err) {
     console.error('Auth /me error:', err);
@@ -555,13 +596,12 @@ app.get('/api/auth/me', async (req, res) => {
 // POST /api/auth/logout - Destroys session, clears cookies, returns { success: true }
 app.post('/api/auth/logout', async (req, res) => {
   try {
-    const token = extractToken(req) || req.body?.token;
+    const token = extractToken(req);
     if (token) {
       await queries.deleteSession(token);
     }
 
     res.clearCookie('archidesk_token');
-    res.clearCookie('connect.sid');
 
     const finishLogout = () => {
       if (req.session) {
@@ -587,14 +627,18 @@ app.post('/api/auth/logout', async (req, res) => {
 });
 
 // PUT /api/auth/profile - Updates architect profile
-app.put('/api/auth/profile', authRequired, async (req, res) => {
+app.put('/api/auth/profile', ensureAuthenticated, async (req, res) => {
   try {
     const { name, studio_name, email, role } = req.body;
     if (!name || !name.trim()) {
       return res.status(400).json({ error: 'Principal architect/engineer name is required' });
     }
 
-    const currentUserId = req.user.user_id || req.user.id;
+    const currentUserId = getAuthUserId(req);
+    if (!currentUserId) {
+      return res.status(401).json({ error: 'Unauthorized: User session required' });
+    }
+
     await queries.updateUserProfile(
       currentUserId,
       name.trim(),
@@ -611,10 +655,11 @@ app.put('/api/auth/profile', authRequired, async (req, res) => {
   }
 });
 
-// ================= DASHBOARD SUMMARY =================
-app.get('/api/dashboard/stats', authRequired, async (req, res) => {
+// ================= DASHBOARD SUMMARY (Strict Multi-Tenant Scoped) =================
+app.get('/api/dashboard/stats', ensureAuthenticated, async (req, res) => {
   try {
-    const stats = await queries.getDashboardStats(req.user.user_id);
+    const userId = getAuthUserId(req);
+    const stats = await queries.getDashboardStats(userId);
     res.json(stats);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -622,16 +667,17 @@ app.get('/api/dashboard/stats', authRequired, async (req, res) => {
 });
 
 // ================= PROJECT TYPES =================
-app.get('/api/project-types', authRequired, async (req, res) => {
+app.get('/api/project-types', ensureAuthenticated, async (req, res) => {
   try {
-    const types = await queries.getProjectTypes();
+    const userId = getAuthUserId(req);
+    const types = await queries.getProjectTypes(userId);
     res.json(types);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.post('/api/project-types', authRequired, async (req, res) => {
+app.post('/api/project-types', ensureAuthenticated, async (req, res) => {
   try {
     const { name, color } = req.body;
     if (!name || !name.trim()) {
@@ -647,7 +693,7 @@ app.post('/api/project-types', authRequired, async (req, res) => {
   }
 });
 
-app.put('/api/project-types/:id', authRequired, async (req, res) => {
+app.put('/api/project-types/:id', ensureAuthenticated, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     const { name, color } = req.body;
@@ -661,7 +707,7 @@ app.put('/api/project-types/:id', authRequired, async (req, res) => {
   }
 });
 
-app.delete('/api/project-types/:id', authRequired, async (req, res) => {
+app.delete('/api/project-types/:id', ensureAuthenticated, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     await queries.deleteProjectType(id);
@@ -671,20 +717,22 @@ app.delete('/api/project-types/:id', authRequired, async (req, res) => {
   }
 });
 
-// ================= CLIENTS =================
-app.get('/api/clients', authRequired, async (req, res) => {
+// ================= CLIENTS (Multi-Tenant User Scoped) =================
+app.get('/api/clients', ensureAuthenticated, async (req, res) => {
   try {
-    const clients = await queries.getClients(req.user.user_id);
+    const userId = getAuthUserId(req);
+    const clients = await queries.getClients(userId);
     res.json(clients);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.get('/api/clients/:id', authRequired, async (req, res) => {
+app.get('/api/clients/:id', ensureAuthenticated, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
-    const client = await queries.getClientById(id);
+    const userId = getAuthUserId(req);
+    const client = await queries.getClientById(id, userId);
     if (!client) {
       return res.status(404).json({ error: 'Client not found' });
     }
@@ -694,8 +742,9 @@ app.get('/api/clients/:id', authRequired, async (req, res) => {
   }
 });
 
-app.post('/api/clients', authRequired, async (req, res) => {
+app.post('/api/clients', ensureAuthenticated, async (req, res) => {
   try {
+    const userId = getAuthUserId(req);
     const { name, phone, email, address, company_name, notes } = req.body;
     if (!name || !name.trim()) {
       return res.status(400).json({ error: 'Client name is required' });
@@ -710,16 +759,17 @@ app.post('/api/clients', authRequired, async (req, res) => {
       cleanPhone = trimmed;
     }
 
-    const result = await queries.createClient(name.trim(), cleanPhone, email, address, company_name, notes, req.user.user_id);
+    const result = await queries.createClient(name.trim(), cleanPhone, email, address, company_name, notes, userId);
     res.json({ success: true, id: result.lastInsertRowid, message: 'Client created' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.put('/api/clients/:id', authRequired, async (req, res) => {
+app.put('/api/clients/:id', ensureAuthenticated, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
+    const userId = getAuthUserId(req);
     const { name, phone, email, address, company_name, notes } = req.body;
     if (!name || !name.trim()) {
       return res.status(400).json({ error: 'Client name is required' });
@@ -734,45 +784,47 @@ app.put('/api/clients/:id', authRequired, async (req, res) => {
       cleanPhone = trimmed;
     }
 
-    await queries.updateClient(id, name.trim(), cleanPhone, email, address, company_name, notes);
+    await queries.updateClient(id, userId, name.trim(), cleanPhone, email, address, company_name, notes);
     res.json({ success: true, message: 'Client updated' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.delete('/api/clients/:id', authRequired, async (req, res) => {
+app.delete('/api/clients/:id', ensureAuthenticated, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
-    await queries.deleteClient(id);
+    const userId = getAuthUserId(req);
+    await queries.deleteClient(id, userId);
     res.json({ success: true, message: 'Client deleted' });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
 });
 
-// ================= PROJECTS =================
-app.get('/api/projects', authRequired, async (req, res) => {
+// ================= PROJECTS (Multi-Tenant User Scoped) =================
+app.get('/api/projects', ensureAuthenticated, async (req, res) => {
   try {
+    const userId = getAuthUserId(req);
     const filters = {
-      user_id: req.user.user_id,
       status: req.query.status,
       project_type_id: req.query.project_type_id ? parseInt(req.query.project_type_id, 10) : undefined,
       client_id: req.query.client_id ? parseInt(req.query.client_id, 10) : undefined,
       location: req.query.location,
       search: req.query.search
     };
-    const projects = await queries.getProjects(filters);
+    const projects = await queries.getProjects(filters, userId);
     res.json(projects);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.get('/api/projects/:id', authRequired, async (req, res) => {
+app.get('/api/projects/:id', ensureAuthenticated, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
-    const project = await queries.getProjectById(id);
+    const userId = getAuthUserId(req);
+    const project = await queries.getProjectById(id, userId);
     if (!project) {
       return res.status(404).json({ error: 'Project not found' });
     }
@@ -782,8 +834,9 @@ app.get('/api/projects/:id', authRequired, async (req, res) => {
   }
 });
 
-app.post('/api/projects', authRequired, async (req, res) => {
+app.post('/api/projects', ensureAuthenticated, async (req, res) => {
   try {
+    const userId = getAuthUserId(req);
     const { client_id, project_type_id, name, location, status, start_date, expected_completion_date, total_fee, notes } = req.body;
     if (!name || !name.trim()) {
       return res.status(400).json({ error: 'Project name is required' });
@@ -809,17 +862,18 @@ app.post('/api/projects', authRequired, async (req, res) => {
       expected_completion_date,
       feeNum,
       notes,
-      req.user.user_id
+      userId
     );
     res.json({ success: true, id: result.lastInsertRowid, message: 'Project created successfully' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(400).json({ error: err.message });
   }
 });
 
-app.put('/api/projects/:id', authRequired, async (req, res) => {
+app.put('/api/projects/:id', ensureAuthenticated, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
+    const userId = getAuthUserId(req);
     const { client_id, project_type_id, name, location, status, start_date, expected_completion_date, total_fee, notes } = req.body;
     if (!name || !name.trim()) {
       return res.status(400).json({ error: 'Project name is required' });
@@ -827,6 +881,7 @@ app.put('/api/projects/:id', authRequired, async (req, res) => {
     const feeNum = parseFloat(total_fee) || 0;
     await queries.updateProject(
       id,
+      userId,
       parseInt(client_id, 10),
       parseInt(project_type_id, 10),
       name.trim(),
@@ -839,56 +894,61 @@ app.put('/api/projects/:id', authRequired, async (req, res) => {
     );
     res.json({ success: true, message: 'Project updated successfully' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(400).json({ error: err.message });
   }
 });
 
-app.patch('/api/projects/:id/status', authRequired, async (req, res) => {
+app.patch('/api/projects/:id/status', ensureAuthenticated, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
+    const userId = getAuthUserId(req);
     const { status } = req.body;
     if (!['Active', 'Completed', 'Pre-Planning'].includes(status)) {
       return res.status(400).json({ error: 'Invalid status. Must be Active, Completed, or Pre-Planning' });
     }
-    await queries.updateProjectStatus(id, status);
+    await queries.updateProjectStatus(id, userId, status);
     res.json({ success: true, status, message: `Project status updated to ${status}` });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.delete('/api/projects/:id', authRequired, async (req, res) => {
+app.delete('/api/projects/:id', ensureAuthenticated, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
-    await queries.deleteProject(id);
+    const userId = getAuthUserId(req);
+    await queries.deleteProject(id, userId);
     res.json({ success: true, message: 'Project deleted' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// ================= ACCOUNTS & PAYMENTS =================
-app.get('/api/accounts/summary', authRequired, async (req, res) => {
+// ================= ACCOUNTS & PAYMENTS (Multi-Tenant User Scoped) =================
+app.get('/api/accounts/summary', ensureAuthenticated, async (req, res) => {
   try {
-    const summary = await queries.getAccountsSummary();
+    const userId = getAuthUserId(req);
+    const summary = await queries.getAccountsSummary(userId);
     res.json(summary);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.get('/api/payments', authRequired, async (req, res) => {
+app.get('/api/payments', ensureAuthenticated, async (req, res) => {
   try {
+    const userId = getAuthUserId(req);
     const projectId = req.query.project_id ? parseInt(req.query.project_id, 10) : null;
-    const payments = await queries.getPayments(projectId);
+    const payments = await queries.getPayments(projectId, userId);
     res.json(payments);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.post('/api/payments', authRequired, async (req, res) => {
+app.post('/api/payments', ensureAuthenticated, async (req, res) => {
   try {
+    const userId = getAuthUserId(req);
     const { project_id, amount, payment_date, payment_method, reference_note } = req.body;
     if (!project_id) {
       return res.status(400).json({ error: 'Project is required' });
@@ -901,24 +961,9 @@ app.post('/api/payments', authRequired, async (req, res) => {
       return res.status(400).json({ error: 'Payment date is required' });
     }
 
-    const proj = await queries.getProjectById(parseInt(project_id, 10));
-    if (!proj) {
-      return res.status(404).json({ error: 'Project not found' });
-    }
-    const remainingBalance = Math.max(0, proj.total_fee - proj.received_amount);
-    if (remainingBalance <= 0) {
-      return res.status(400).json({
-        error: `Project "${proj.name}" is already fully settled (₹0 balance). You cannot receive additional payments.`
-      });
-    }
-    if (amtNum > remainingBalance) {
-      return res.status(400).json({
-        error: `Payment amount (₹${amtNum.toLocaleString('en-IN')}) cannot exceed remaining balance of ₹${remainingBalance.toLocaleString('en-IN')}`
-      });
-    }
-
     const result = await queries.addPayment(
       parseInt(project_id, 10),
+      userId,
       amtNum,
       payment_date,
       payment_method || 'UPI',
@@ -926,49 +971,52 @@ app.post('/api/payments', authRequired, async (req, res) => {
     );
 
     // Get recalculated project financial data
-    const updatedProj = await queries.getProjectById(parseInt(project_id, 10));
+    const updatedProj = await queries.getProjectById(parseInt(project_id, 10), userId);
 
     res.json({
       success: true,
       id: result.lastInsertRowid,
       message: 'Payment recorded successfully',
-      project: {
+      project: updatedProj ? {
         id: updatedProj.id,
         total_fee: updatedProj.total_fee,
         received_amount: updatedProj.received_amount,
         balance_amount: updatedProj.balance_amount
-      }
+      } : null
     });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
 });
 
-app.delete('/api/payments/:id', authRequired, async (req, res) => {
+app.delete('/api/payments/:id', ensureAuthenticated, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
-    await queries.deletePayment(id);
+    const userId = getAuthUserId(req);
+    await queries.deletePayment(id, userId);
     res.json({ success: true, message: 'Payment deleted and balance recalculated' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// ================= DRAWINGS & REVISIONS =================
-app.get('/api/projects/:id/drawings', authRequired, async (req, res) => {
+// ================= DRAWINGS & REVISIONS (Multi-Tenant User Scoped) =================
+app.get('/api/projects/:id/drawings', ensureAuthenticated, async (req, res) => {
   try {
     const projectId = parseInt(req.params.id, 10);
-    const drawings = await queries.getDrawings(projectId);
+    const userId = getAuthUserId(req);
+    const drawings = await queries.getDrawings(projectId, userId);
     res.json(drawings);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.get('/api/drawings/:id/revisions', authRequired, async (req, res) => {
+app.get('/api/drawings/:id/revisions', ensureAuthenticated, async (req, res) => {
   try {
     const drawingId = parseInt(req.params.id, 10);
-    const drawingWithRevs = await queries.getDrawingWithRevisions(drawingId);
+    const userId = getAuthUserId(req);
+    const drawingWithRevs = await queries.getDrawingWithRevisions(drawingId, userId);
     if (!drawingWithRevs) {
       return res.status(404).json({ error: 'Drawing not found' });
     }
@@ -978,9 +1026,10 @@ app.get('/api/drawings/:id/revisions', authRequired, async (req, res) => {
   }
 });
 
-app.post('/api/projects/:id/drawings', authRequired, upload.single('file'), async (req, res) => {
+app.post('/api/projects/:id/drawings', ensureAuthenticated, upload.single('file'), async (req, res) => {
   try {
     const projectId = parseInt(req.params.id, 10);
+    const userId = getAuthUserId(req);
     const { name, drawing_number, category, description, revision_code, revision_note } = req.body;
     if (!name || !name.trim()) {
       return res.status(400).json({ error: 'Drawing name is required' });
@@ -1008,6 +1057,7 @@ app.post('/api/projects/:id/drawings', authRequired, upload.single('file'), asyn
 
     const drawingId = await queries.createDrawing(
       projectId,
+      userId,
       name.trim(),
       drawing_number,
       category,
@@ -1027,9 +1077,10 @@ app.post('/api/projects/:id/drawings', authRequired, upload.single('file'), asyn
   }
 });
 
-app.post('/api/drawings/:id/revisions', authRequired, upload.single('file'), async (req, res) => {
+app.post('/api/drawings/:id/revisions', ensureAuthenticated, upload.single('file'), async (req, res) => {
   try {
     const drawingId = parseInt(req.params.id, 10);
+    const userId = getAuthUserId(req);
     const { revision_code, revision_note, revision_date } = req.body;
     if (!revision_code || !revision_code.trim()) {
       return res.status(400).json({ error: 'Revision code (e.g. R01, R02) is required' });
@@ -1051,6 +1102,7 @@ app.post('/api/drawings/:id/revisions', authRequired, upload.single('file'), asy
 
     const result = await queries.addDrawingRevision(
       drawingId,
+      userId,
       revision_code.trim().toUpperCase(),
       revision_note || 'Drawing revision updated',
       revision_date || new Date().toISOString().split('T')[0],
@@ -1066,56 +1118,61 @@ app.post('/api/drawings/:id/revisions', authRequired, upload.single('file'), asy
   }
 });
 
-app.put('/api/drawings/:id', authRequired, async (req, res) => {
+app.put('/api/drawings/:id', ensureAuthenticated, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
+    const userId = getAuthUserId(req);
     const { name, drawing_number, category, description } = req.body;
     if (!name || !name.trim()) {
       return res.status(400).json({ error: 'Drawing name is required' });
     }
-    await queries.updateDrawing(id, name.trim(), drawing_number, category, description);
+    await queries.updateDrawing(id, userId, name.trim(), drawing_number, category, description);
     res.json({ success: true, message: 'Drawing details updated' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.delete('/api/drawings/:id', authRequired, async (req, res) => {
+app.delete('/api/drawings/:id', ensureAuthenticated, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
-    await queries.deleteDrawing(id);
+    const userId = getAuthUserId(req);
+    await queries.deleteDrawing(id, userId);
     res.json({ success: true, message: 'Drawing and all historical revisions deleted' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// ================= IMAGES & SITE TIMELINE =================
-app.get('/api/projects/:id/images', authRequired, async (req, res) => {
+// ================= IMAGES & SITE TIMELINE (Multi-Tenant User Scoped) =================
+app.get('/api/projects/:id/images', ensureAuthenticated, async (req, res) => {
   try {
     const projectId = parseInt(req.params.id, 10);
+    const userId = getAuthUserId(req);
     const category = req.query.category;
-    const images = await queries.getProjectImages(projectId, category);
+    const images = await queries.getProjectImages(projectId, userId, category);
     res.json(images);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.get('/api/projects/:id/timeline', authRequired, async (req, res) => {
+app.get('/api/projects/:id/timeline', ensureAuthenticated, async (req, res) => {
   try {
     const projectId = parseInt(req.params.id, 10);
+    const userId = getAuthUserId(req);
     const sort = req.query.sort || 'ASC';
-    const timeline = await queries.getProjectTimeline(projectId, sort);
+    const timeline = await queries.getProjectTimeline(projectId, userId, sort);
     res.json(timeline);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.post('/api/projects/:id/images', authRequired, upload.single('file'), async (req, res) => {
+app.post('/api/projects/:id/images', ensureAuthenticated, upload.single('file'), async (req, res) => {
   try {
     const projectId = parseInt(req.params.id, 10);
+    const userId = getAuthUserId(req);
     const { title, date, category, description, location_area } = req.body;
     if (!title || !title.trim()) {
       return res.status(400).json({ error: 'Image title is required' });
@@ -1140,6 +1197,7 @@ app.post('/api/projects/:id/images', authRequired, upload.single('file'), async 
 
     const result = await queries.createProjectImage(
       projectId,
+      userId,
       title.trim(),
       date,
       category || 'Site',
@@ -1157,11 +1215,61 @@ app.post('/api/projects/:id/images', authRequired, upload.single('file'), async 
   }
 });
 
-app.delete('/api/images/:id', authRequired, async (req, res) => {
+app.delete('/api/images/:id', ensureAuthenticated, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
-    await queries.deleteProjectImage(id);
+    const userId = getAuthUserId(req);
+    await queries.deleteProjectImage(id, userId);
     res.json({ success: true, message: 'Image deleted' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ================= TASKS (Multi-Tenant User Scoped) =================
+app.get('/api/tasks', ensureAuthenticated, async (req, res) => {
+  try {
+    const userId = getAuthUserId(req);
+    const projectId = req.query.project_id ? parseInt(req.query.project_id, 10) : null;
+    const tasks = await queries.getTasks(userId, projectId);
+    res.json(tasks);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/tasks', ensureAuthenticated, async (req, res) => {
+  try {
+    const userId = getAuthUserId(req);
+    const { title, project_id, due_date } = req.body;
+    if (!title || !title.trim()) {
+      return res.status(400).json({ error: 'Task title is required' });
+    }
+    const result = await queries.createTask(userId, project_id ? parseInt(project_id, 10) : null, title.trim(), due_date);
+    res.json({ success: true, id: result.lastInsertRowid, message: 'Task created' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.patch('/api/tasks/:id/status', ensureAuthenticated, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const userId = getAuthUserId(req);
+    const { status } = req.body;
+    await queries.updateTaskStatus(id, userId, status || 'Completed');
+    res.json({ success: true, message: 'Task status updated' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/tasks/:id', ensureAuthenticated, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const userId = getAuthUserId(req);
+    await queries.deleteTask(id, userId);
+    res.json({ success: true, message: 'Task deleted' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

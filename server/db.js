@@ -51,7 +51,7 @@ async function initDatabase() {
     await db.execute(`
       CREATE TABLE IF NOT EXISTS clients (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         name TEXT NOT NULL,
         phone TEXT,
         email TEXT,
@@ -66,7 +66,7 @@ async function initDatabase() {
     await db.execute(`
       CREATE TABLE IF NOT EXISTS projects (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE RESTRICT,
         project_type_id INTEGER NOT NULL REFERENCES project_types(id) ON DELETE RESTRICT,
         name TEXT NOT NULL,
@@ -84,6 +84,7 @@ async function initDatabase() {
     await db.execute(`
       CREATE TABLE IF NOT EXISTS payments (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
         client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE RESTRICT,
         amount REAL NOT NULL CHECK(amount > 0),
@@ -97,6 +98,7 @@ async function initDatabase() {
     await db.execute(`
       CREATE TABLE IF NOT EXISTS drawings (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
         name TEXT NOT NULL,
         drawing_number TEXT,
@@ -111,6 +113,7 @@ async function initDatabase() {
     await db.execute(`
       CREATE TABLE IF NOT EXISTS drawing_revisions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         drawing_id INTEGER NOT NULL REFERENCES drawings(id) ON DELETE CASCADE,
         revision_code TEXT NOT NULL,
         revision_note TEXT,
@@ -126,6 +129,7 @@ async function initDatabase() {
     await db.execute(`
       CREATE TABLE IF NOT EXISTS project_images (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
         title TEXT NOT NULL,
         date TEXT NOT NULL,
@@ -136,6 +140,18 @@ async function initDatabase() {
         file_name TEXT,
         file_url TEXT,
         file_size INTEGER DEFAULT 0,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    await db.execute(`
+      CREATE TABLE IF NOT EXISTS tasks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        project_id INTEGER REFERENCES projects(id) ON DELETE CASCADE,
+        title TEXT NOT NULL,
+        status TEXT DEFAULT 'Pending',
+        due_date TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       );
     `);
@@ -169,21 +185,41 @@ async function initDatabase() {
     await db.execute(`CREATE INDEX IF NOT EXISTS idx_revisions_drawing ON drawing_revisions(drawing_id);`);
     await db.execute(`CREATE INDEX IF NOT EXISTS idx_images_project ON project_images(project_id);`);
     await db.execute(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google_id ON users(google_id) WHERE google_id IS NOT NULL;`);
+    
+    // User scoping indexes for fast multi-tenant queries
     await db.execute(`CREATE INDEX IF NOT EXISTS idx_clients_user ON clients(user_id);`);
     await db.execute(`CREATE INDEX IF NOT EXISTS idx_projects_user ON projects(user_id);`);
+    await db.execute(`CREATE INDEX IF NOT EXISTS idx_payments_user ON payments(user_id);`);
+    await db.execute(`CREATE INDEX IF NOT EXISTS idx_drawings_user ON drawings(user_id);`);
+    await db.execute(`CREATE INDEX IF NOT EXISTS idx_revisions_user ON drawing_revisions(user_id);`);
+    await db.execute(`CREATE INDEX IF NOT EXISTS idx_images_user ON project_images(user_id);`);
+    await db.execute(`CREATE INDEX IF NOT EXISTS idx_tasks_user ON tasks(user_id);`);
 
-    // Schema upgrades if existing remote database was created previously
+    // Schema upgrades / migrations for existing databases
     try { await db.execute("ALTER TABLE users ADD COLUMN google_id TEXT;"); } catch (e) {}
     try { await db.execute("ALTER TABLE users ADD COLUMN avatar_url TEXT;"); } catch (e) {}
     try { await db.execute("ALTER TABLE users ADD COLUMN auth_provider TEXT DEFAULT 'local';"); } catch (e) {}
     try { await db.execute("ALTER TABLE clients ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE;"); } catch (e) {}
     try { await db.execute("ALTER TABLE projects ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE;"); } catch (e) {}
+    try { await db.execute("ALTER TABLE payments ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE;"); } catch (e) {}
+    try { await db.execute("ALTER TABLE drawings ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE;"); } catch (e) {}
+    try { await db.execute("ALTER TABLE drawing_revisions ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE;"); } catch (e) {}
+    try { await db.execute("ALTER TABLE project_images ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE;"); } catch (e) {}
+    try { await db.execute("ALTER TABLE tasks ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE;"); } catch (e) {}
     try { await db.execute("ALTER TABLE otps ADD COLUMN otp_code TEXT;"); } catch (e) {}
 
-    // Backfill demo data
+    // Backfill user_id on existing child records by joining their parent project, or fallback to user 1
     try {
       await db.execute("UPDATE clients SET user_id = 1 WHERE user_id IS NULL;");
       await db.execute("UPDATE projects SET user_id = 1 WHERE user_id IS NULL;");
+      await db.execute("UPDATE payments SET user_id = (SELECT user_id FROM projects WHERE projects.id = payments.project_id) WHERE user_id IS NULL;");
+      await db.execute("UPDATE payments SET user_id = 1 WHERE user_id IS NULL;");
+      await db.execute("UPDATE drawings SET user_id = (SELECT user_id FROM projects WHERE projects.id = drawings.project_id) WHERE user_id IS NULL;");
+      await db.execute("UPDATE drawings SET user_id = 1 WHERE user_id IS NULL;");
+      await db.execute("UPDATE drawing_revisions SET user_id = (SELECT user_id FROM drawings WHERE drawings.id = drawing_revisions.drawing_id) WHERE user_id IS NULL;");
+      await db.execute("UPDATE drawing_revisions SET user_id = 1 WHERE user_id IS NULL;");
+      await db.execute("UPDATE project_images SET user_id = (SELECT user_id FROM projects WHERE projects.id = project_images.project_id) WHERE user_id IS NULL;");
+      await db.execute("UPDATE project_images SET user_id = 1 WHERE user_id IS NULL;");
     } catch (e) {}
 
     await seedDefaultData();
@@ -237,7 +273,7 @@ async function seedDefaultData() {
     }
   }
 
-  // Check if any client exists; if not, seed realistic sample data
+  // Check if any client exists; if not, seed realistic sample data scoped to user_id = 1
   const existingClientRes = await db.execute('SELECT id FROM clients LIMIT 1');
   if (existingClientRes.rows.length === 0) {
     // 1. Clients
@@ -373,31 +409,31 @@ async function seedDefaultData() {
 
     // 3. Payments
     await db.execute({
-      sql: `INSERT INTO payments (project_id, client_id, amount, payment_date, payment_method, reference_note) VALUES (?, ?, ?, ?, ?, ?)`,
+      sql: `INSERT INTO payments (project_id, client_id, amount, payment_date, payment_method, reference_note, user_id) VALUES (?, ?, ?, ?, ?, ?, 1)`,
       args: [sharmaProjId, rahulId, 10000, '2026-08-15', 'UPI', 'Advance token on approval of concept drawings (UPI Ref: UPI-8492048)']
     });
 
     await db.execute({
-      sql: `INSERT INTO payments (project_id, client_id, amount, payment_date, payment_method, reference_note) VALUES (?, ?, ?, ?, ?, ?)`,
+      sql: `INSERT INTO payments (project_id, client_id, amount, payment_date, payment_method, reference_note, user_id) VALUES (?, ?, ?, ?, ?, ?, 1)`,
       args: [vermaProjId, priyaId, 30000, '2026-01-15', 'Bank Transfer', 'Initial Mobilization Deposit']
     });
     await db.execute({
-      sql: `INSERT INTO payments (project_id, client_id, amount, payment_date, payment_method, reference_note) VALUES (?, ?, ?, ?, ?, ?)`,
+      sql: `INSERT INTO payments (project_id, client_id, amount, payment_date, payment_method, reference_note, user_id) VALUES (?, ?, ?, ?, ?, ?, 1)`,
       args: [vermaProjId, priyaId, 35000, '2026-04-10', 'Cheque', 'Mid-way Milestone Payment (Chq #440912)']
     });
     await db.execute({
-      sql: `INSERT INTO payments (project_id, client_id, amount, payment_date, payment_method, reference_note) VALUES (?, ?, ?, ?, ?, ?)`,
+      sql: `INSERT INTO payments (project_id, client_id, amount, payment_date, payment_method, reference_note, user_id) VALUES (?, ?, ?, ?, ?, ?, 1)`,
       args: [vermaProjId, priyaId, 20000, '2026-07-30', 'Bank Transfer', 'Final Handover Settlement']
     });
 
     await db.execute({
-      sql: `INSERT INTO payments (project_id, client_id, amount, payment_date, payment_method, reference_note) VALUES (?, ?, ?, ?, ?, ?)`,
+      sql: `INSERT INTO payments (project_id, client_id, amount, payment_date, payment_method, reference_note, user_id) VALUES (?, ?, ?, ?, ?, ?, 1)`,
       args: [zenithProjId, arindamId, 50000, '2026-06-20', 'Bank Transfer', 'Phase 1 Structural Design Signoff']
     });
 
     // 4. Drawings for Sharma Residence
     const d1Res = await db.execute({
-      sql: `INSERT INTO drawings (project_id, name, drawing_number, category, description, uploaded_by) VALUES (?, ?, ?, ?, ?, ?)`,
+      sql: `INSERT INTO drawings (project_id, name, drawing_number, category, description, uploaded_by, user_id) VALUES (?, ?, ?, ?, ?, ?, 1)`,
       args: [
         sharmaProjId,
         'Ground Floor Layout Plan',
@@ -410,20 +446,20 @@ async function seedDefaultData() {
     const d1 = Number(d1Res.lastInsertRowid);
 
     await db.execute({
-      sql: `INSERT INTO drawing_revisions (drawing_id, revision_code, revision_note, revision_date, file_name, file_url, file_size, file_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      sql: `INSERT INTO drawing_revisions (drawing_id, revision_code, revision_note, revision_date, file_name, file_url, file_size, file_type, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`,
       args: [d1, 'R00', 'Initial architectural schematic concept layout', '2026-08-05', 'SR_GF_Plan_R00.pdf', '/assets/sample-floorplan.svg', 142000, 'PDF']
     });
     await db.execute({
-      sql: `INSERT INTO drawing_revisions (drawing_id, revision_code, revision_note, revision_date, file_name, file_url, file_size, file_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      sql: `INSERT INTO drawing_revisions (drawing_id, revision_code, revision_note, revision_date, file_name, file_url, file_size, file_type, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`,
       args: [d1, 'R01', 'Kitchen pantry extended & utility corridor modified', '2026-08-14', 'SR_GF_Plan_R01.pdf', '/assets/sample-floorplan.svg', 148500, 'PDF']
     });
     await db.execute({
-      sql: `INSERT INTO drawing_revisions (drawing_id, revision_code, revision_note, revision_date, file_name, file_url, file_size, file_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      sql: `INSERT INTO drawing_revisions (drawing_id, revision_code, revision_note, revision_date, file_name, file_url, file_size, file_type, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`,
       args: [d1, 'R02', 'Final approved layout with staircase structural column alignment', '2026-08-28', 'SR_GF_Plan_R02.pdf', '/assets/sample-floorplan.svg', 152000, 'PDF']
     });
 
     const d2Res = await db.execute({
-      sql: `INSERT INTO drawings (project_id, name, drawing_number, category, description, uploaded_by) VALUES (?, ?, ?, ?, ?, ?)`,
+      sql: `INSERT INTO drawings (project_id, name, drawing_number, category, description, uploaded_by, user_id) VALUES (?, ?, ?, ?, ?, ?, 1)`,
       args: [
         sharmaProjId,
         'North Front Elevation',
@@ -436,16 +472,16 @@ async function seedDefaultData() {
     const d2 = Number(d2Res.lastInsertRowid);
 
     await db.execute({
-      sql: `INSERT INTO drawing_revisions (drawing_id, revision_code, revision_note, revision_date, file_name, file_url, file_size, file_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      sql: `INSERT INTO drawing_revisions (drawing_id, revision_code, revision_note, revision_date, file_name, file_url, file_size, file_type, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`,
       args: [d2, 'R00', 'Initial facade massing & window proportion study', '2026-08-10', 'SR_Elevation_R00.dwg', '/assets/sample-elevation.svg', 210000, 'DWG']
     });
     await db.execute({
-      sql: `INSERT INTO drawing_revisions (drawing_id, revision_code, revision_note, revision_date, file_name, file_url, file_size, file_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      sql: `INSERT INTO drawing_revisions (drawing_id, revision_code, revision_note, revision_date, file_name, file_url, file_size, file_type, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`,
       args: [d2, 'R01', 'Balcony louvers orientation and cantilever beam depth adjusted', '2026-08-22', 'SR_Elevation_R01.dwg', '/assets/sample-elevation.svg', 218000, 'DWG']
     });
 
     const d3Res = await db.execute({
-      sql: `INSERT INTO drawings (project_id, name, drawing_number, category, description, uploaded_by) VALUES (?, ?, ?, ?, ?, ?)`,
+      sql: `INSERT INTO drawings (project_id, name, drawing_number, category, description, uploaded_by, user_id) VALUES (?, ?, ?, ?, ?, ?, 1)`,
       args: [
         sharmaProjId,
         'Cross Section A-A & Slab Heights',
@@ -458,15 +494,15 @@ async function seedDefaultData() {
     const d3 = Number(d3Res.lastInsertRowid);
 
     await db.execute({
-      sql: `INSERT INTO drawing_revisions (drawing_id, revision_code, revision_note, revision_date, file_name, file_url, file_size, file_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      sql: `INSERT INTO drawing_revisions (drawing_id, revision_code, revision_note, revision_date, file_name, file_url, file_size, file_type, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`,
       args: [d3, 'R00', 'Issued for structural tender and footing coordinates', '2026-08-18', 'SR_Section_AA_R00.pdf', '/assets/sample-section.svg', 189000, 'PDF']
     });
 
     // 5. Site Photo Timeline for Sharma Residence
     await db.execute({
       sql: `
-        INSERT INTO project_images (project_id, title, date, category, description, location_area, uploaded_by, file_name, file_url, file_size)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO project_images (project_id, title, date, category, description, location_area, uploaded_by, file_name, file_url, file_size, user_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
       `,
       args: [
         sharmaProjId,
@@ -484,27 +520,27 @@ async function seedDefaultData() {
 
     await db.execute({
       sql: `
-        INSERT INTO project_images (project_id, title, date, category, description, location_area, uploaded_by, file_name, file_url, file_size)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO project_images (project_id, title, date, category, description, location_area, uploaded_by, file_name, file_url, file_size, user_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
       `,
       args: [
         sharmaProjId,
-        'Raft Foundation & Rebar Binding',
+        'Raft Foundation Steel Binding',
         '2026-08-25',
         'Progress',
-        'PCC layer cured. 16mm rebar mesh bound with dual-tier spacers prior to M25 concrete pour.',
-        'Main Footprint Grid A-D',
-        'Site Engineer Verma',
-        'foundation_rebar.jpg',
-        '/assets/foundation.svg',
+        'High yield strength deformed (Fe550D) TMT bars bound with 200mm spacing. Anti-termite treatment completed.',
+        'Basement & Core Footing',
+        'Er. K. Mehta (Structural)',
+        'raft_steel_binding.jpg',
+        '/assets/raft_foundation.svg',
         410000
       ]
     });
 
     await db.execute({
       sql: `
-        INSERT INTO project_images (project_id, title, date, category, description, location_area, uploaded_by, file_name, file_url, file_size)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO project_images (project_id, title, date, category, description, location_area, uploaded_by, file_name, file_url, file_size, user_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
       `,
       args: [
         sharmaProjId,
@@ -522,8 +558,8 @@ async function seedDefaultData() {
 
     await db.execute({
       sql: `
-        INSERT INTO project_images (project_id, title, date, category, description, location_area, uploaded_by, file_name, file_url, file_size)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO project_images (project_id, title, date, category, description, location_area, uploaded_by, file_name, file_url, file_size, user_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
       `,
       args: [
         sharmaProjId,
@@ -541,8 +577,8 @@ async function seedDefaultData() {
 
     await db.execute({
       sql: `
-        INSERT INTO project_images (project_id, title, date, category, description, location_area, uploaded_by, file_name, file_url, file_size)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO project_images (project_id, title, date, category, description, location_area, uploaded_by, file_name, file_url, file_size, user_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
       `,
       args: [
         sharmaProjId,
@@ -560,7 +596,7 @@ async function seedDefaultData() {
   }
 }
 
-// Helper query functions refactored for asynchronous libSQL queries
+// Helper query functions with strict multi-tenant user scoping
 const queries = {
   // Auth
   async getUserByEmail(email) {
@@ -765,11 +801,23 @@ const queries = {
   },
 
   // Project Types
-  async getProjectTypes() {
+  async getProjectTypes(userId = null) {
+    if (userId) {
+      const res = await db.execute({
+        sql: `
+          SELECT pt.*, COUNT(p.id) as project_count
+          FROM project_types pt
+          LEFT JOIN projects p ON pt.id = p.project_type_id AND p.user_id = ?
+          GROUP BY pt.id
+          ORDER BY pt.is_default DESC, pt.name ASC
+        `,
+        args: [userId]
+      });
+      return res.rows;
+    }
     const res = await db.execute(`
-      SELECT pt.*, COUNT(p.id) as project_count
+      SELECT pt.*, 0 as project_count
       FROM project_types pt
-      LEFT JOIN projects p ON pt.id = p.project_type_id
       GROUP BY pt.id
       ORDER BY pt.is_default DESC, pt.name ASC
     `);
@@ -814,35 +862,31 @@ const queries = {
     });
   },
 
-  // Clients
-  async getClients(userId = null) {
-    let sql = `
+  // ================= CLIENTS (Multi-Tenant User Scoped) =================
+  async getClients(userId) {
+    if (!userId) return [];
+    const sql = `
       SELECT c.*,
         COUNT(DISTINCT p.id) as total_projects,
         COALESCE(SUM(p.total_fee), 0) as total_deal_amount,
         COALESCE(SUM(pmt.amount), 0) as total_received,
         (COALESCE(SUM(p.total_fee), 0) - COALESCE(SUM(pmt.amount), 0)) as total_balance
       FROM clients c
-      LEFT JOIN projects p ON c.id = p.client_id
-      LEFT JOIN payments pmt ON p.id = pmt.project_id
-    `;
-    const params = [];
-    if (userId !== null && userId !== undefined) {
-      sql += ' WHERE (c.user_id = ? OR c.user_id IS NULL)';
-      params.push(userId);
-    }
-    sql += `
+      LEFT JOIN projects p ON c.id = p.client_id AND p.user_id = ?
+      LEFT JOIN payments pmt ON p.id = pmt.project_id AND pmt.user_id = ?
+      WHERE c.user_id = ?
       GROUP BY c.id
       ORDER BY c.name ASC
     `;
-    const res = await db.execute({ sql, args: params });
+    const res = await db.execute({ sql, args: [userId, userId, userId] });
     return res.rows;
   },
 
-  async getClientById(id) {
+  async getClientById(id, userId) {
+    if (!userId) return null;
     const clientRes = await db.execute({
-      sql: 'SELECT * FROM clients WHERE id = ?',
-      args: [id]
+      sql: 'SELECT * FROM clients WHERE id = ? AND user_id = ?',
+      args: [id, userId]
     });
     const client = clientRes.rows[0];
     if (!client) return null;
@@ -854,76 +898,76 @@ const queries = {
           MAX(0, (p.total_fee - COALESCE(SUM(pmt.amount), 0))) as balance_amount
         FROM projects p
         JOIN project_types pt ON p.project_type_id = pt.id
-        LEFT JOIN payments pmt ON p.id = pmt.project_id
-        WHERE p.client_id = ?
+        LEFT JOIN payments pmt ON p.id = pmt.project_id AND pmt.user_id = ?
+        WHERE p.client_id = ? AND p.user_id = ?
         GROUP BY p.id
         ORDER BY p.created_at DESC
       `,
-      args: [id]
+      args: [userId, id, userId]
     });
 
     return { ...client, projects: projectsRes.rows };
   },
 
-  async createClient(name, phone, email, address, company_name, notes, userId = null) {
+  async createClient(name, phone, email, address, company_name, notes, userId) {
+    if (!userId) throw new Error('Unauthorized: User ID is required');
     const res = await db.execute({
       sql: `
         INSERT INTO clients (name, phone, email, address, company_name, notes, user_id)
         VALUES (?, ?, ?, ?, ?, ?, ?)
       `,
-      args: [name, phone || null, email || null, address || null, company_name || null, notes || null, userId || 1]
+      args: [name, phone || null, email || null, address || null, company_name || null, notes || null, userId]
     });
     return { lastInsertRowid: Number(res.lastInsertRowid) };
   },
 
-  async updateClient(id, name, phone, email, address, company_name, notes) {
+  async updateClient(id, userId, name, phone, email, address, company_name, notes) {
+    if (!userId) throw new Error('Unauthorized: User ID is required');
     return await db.execute({
       sql: `
         UPDATE clients
         SET name = ?, phone = ?, email = ?, address = ?, company_name = ?, notes = ?, updated_at = CURRENT_TIMESTAMP
-        WHERE id = ?
+        WHERE id = ? AND user_id = ?
       `,
-      args: [name, phone || null, email || null, address || null, company_name || null, notes || null, id]
+      args: [name, phone || null, email || null, address || null, company_name || null, notes || null, id, userId]
     });
   },
 
-  async deleteClient(id) {
+  async deleteClient(id, userId) {
+    if (!userId) throw new Error('Unauthorized: User ID is required');
     const countRes = await db.execute({
-      sql: 'SELECT COUNT(*) as c FROM projects WHERE client_id = ?',
-      args: [id]
+      sql: 'SELECT COUNT(*) as c FROM projects WHERE client_id = ? AND user_id = ?',
+      args: [id, userId]
     });
     const count = countRes.rows[0] ? countRes.rows[0].c : 0;
     if (count > 0) {
       throw new Error(`Cannot delete client: has ${count} associated project(s).`);
     }
     return await db.execute({
-      sql: 'DELETE FROM clients WHERE id = ?',
-      args: [id]
+      sql: 'DELETE FROM clients WHERE id = ? AND user_id = ?',
+      args: [id, userId]
     });
   },
 
-  // Projects
-  async getProjects(filters = {}) {
+  // ================= PROJECTS (Multi-Tenant User Scoped) =================
+  async getProjects(filters = {}, userId) {
+    if (!userId) return [];
     let sql = `
       SELECT p.*,
         c.name as client_name, c.phone as client_phone, c.email as client_email,
         pt.name as project_type_name, pt.badge_color,
         COALESCE(SUM(pmt.amount), 0) as received_amount,
         MAX(0, (p.total_fee - COALESCE(SUM(pmt.amount), 0))) as balance_amount,
-        (SELECT COUNT(*) FROM drawings WHERE project_id = p.id) as drawings_count,
-        (SELECT COUNT(*) FROM project_images WHERE project_id = p.id) as images_count
+        (SELECT COUNT(*) FROM drawings WHERE project_id = p.id AND user_id = ?) as drawings_count,
+        (SELECT COUNT(*) FROM project_images WHERE project_id = p.id AND user_id = ?) as images_count
       FROM projects p
-      JOIN clients c ON p.client_id = c.id
+      JOIN clients c ON p.client_id = c.id AND c.user_id = ?
       JOIN project_types pt ON p.project_type_id = pt.id
-      LEFT JOIN payments pmt ON p.id = pmt.project_id
-      WHERE 1=1
+      LEFT JOIN payments pmt ON p.id = pmt.project_id AND pmt.user_id = ?
+      WHERE p.user_id = ?
     `;
-    const params = [];
+    const params = [userId, userId, userId, userId, userId];
 
-    if (filters.user_id !== undefined && filters.user_id !== null) {
-      sql += ' AND (p.user_id = ? OR p.user_id IS NULL)';
-      params.push(filters.user_id);
-    }
     if (filters.status) {
       sql += ' AND p.status = ?';
       params.push(filters.status);
@@ -951,7 +995,8 @@ const queries = {
     return res.rows;
   },
 
-  async getProjectById(id) {
+  async getProjectById(id, userId) {
+    if (!userId) return null;
     const projRes = await db.execute({
       sql: `
         SELECT p.*,
@@ -960,112 +1005,139 @@ const queries = {
           COALESCE(SUM(pmt.amount), 0) as received_amount,
           MAX(0, (p.total_fee - COALESCE(SUM(pmt.amount), 0))) as balance_amount
         FROM projects p
-        JOIN clients c ON p.client_id = c.id
+        JOIN clients c ON p.client_id = c.id AND c.user_id = ?
         JOIN project_types pt ON p.project_type_id = pt.id
-        LEFT JOIN payments pmt ON p.id = pmt.project_id
-        WHERE p.id = ?
+        LEFT JOIN payments pmt ON p.id = pmt.project_id AND pmt.user_id = ?
+        WHERE p.id = ? AND p.user_id = ?
         GROUP BY p.id
       `,
-      args: [id]
+      args: [userId, userId, id, userId]
     });
 
     const project = projRes.rows[0];
     if (!project) return null;
 
-    // Attach payments
+    // Attach payments strictly scoped to user
     const paymentsRes = await db.execute({
-      sql: 'SELECT * FROM payments WHERE project_id = ? ORDER BY payment_date DESC, id DESC',
-      args: [id]
+      sql: 'SELECT * FROM payments WHERE project_id = ? AND user_id = ? ORDER BY payment_date DESC, id DESC',
+      args: [id, userId]
     });
     project.payments = paymentsRes.rows;
 
-    // Attach drawings count and images count
-    const dCount = await db.execute({ sql: 'SELECT COUNT(*) as c FROM drawings WHERE project_id = ?', args: [id] });
+    const dCount = await db.execute({ sql: 'SELECT COUNT(*) as c FROM drawings WHERE project_id = ? AND user_id = ?', args: [id, userId] });
     project.drawings_count = dCount.rows[0] ? dCount.rows[0].c : 0;
 
-    const iCount = await db.execute({ sql: 'SELECT COUNT(*) as c FROM project_images WHERE project_id = ?', args: [id] });
+    const iCount = await db.execute({ sql: 'SELECT COUNT(*) as c FROM project_images WHERE project_id = ? AND user_id = ?', args: [id, userId] });
     project.images_count = iCount.rows[0] ? iCount.rows[0].c : 0;
 
     return project;
   },
 
-  async createProject(clientId, projectTypeId, name, location, status, startDate, completionDate, totalFee, notes, userId = null) {
+  async createProject(clientId, projectTypeId, name, location, status, startDate, completionDate, totalFee, notes, userId) {
+    if (!userId) throw new Error('Unauthorized: User ID is required');
+    // Ensure client belongs to this user
+    const clientCheck = await db.execute({
+      sql: 'SELECT id FROM clients WHERE id = ? AND user_id = ?',
+      args: [clientId, userId]
+    });
+    if (clientCheck.rows.length === 0) {
+      throw new Error('Client not found or does not belong to you');
+    }
+
     const res = await db.execute({
       sql: `
         INSERT INTO projects (client_id, project_type_id, name, location, status, start_date, expected_completion_date, total_fee, notes, user_id)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
-      args: [clientId, projectTypeId, name, location, status || 'Active', startDate || null, completionDate || null, totalFee || 0, notes || null, userId || 1]
+      args: [clientId, projectTypeId, name, location, status || 'Active', startDate || null, completionDate || null, totalFee || 0, notes || null, userId]
     });
     return { lastInsertRowid: Number(res.lastInsertRowid) };
   },
 
-  async updateProject(id, clientId, projectTypeId, name, location, status, startDate, completionDate, totalFee, notes) {
+  async updateProject(id, userId, clientId, projectTypeId, name, location, status, startDate, completionDate, totalFee, notes) {
+    if (!userId) throw new Error('Unauthorized: User ID is required');
+    // Ensure client belongs to this user
+    const clientCheck = await db.execute({
+      sql: 'SELECT id FROM clients WHERE id = ? AND user_id = ?',
+      args: [clientId, userId]
+    });
+    if (clientCheck.rows.length === 0) {
+      throw new Error('Client not found or does not belong to you');
+    }
+
     return await db.execute({
       sql: `
         UPDATE projects
         SET client_id = ?, project_type_id = ?, name = ?, location = ?, status = ?,
             start_date = ?, expected_completion_date = ?, total_fee = ?, notes = ?,
             updated_at = CURRENT_TIMESTAMP
-        WHERE id = ?
+        WHERE id = ? AND user_id = ?
       `,
-      args: [clientId, projectTypeId, name, location, status, startDate || null, completionDate || null, totalFee || 0, notes || null, id]
+      args: [clientId, projectTypeId, name, location, status, startDate || null, completionDate || null, totalFee || 0, notes || null, id, userId]
     });
   },
 
-  async updateProjectStatus(id, status) {
+  async updateProjectStatus(id, userId, status) {
+    if (!userId) throw new Error('Unauthorized: User ID is required');
     return await db.execute({
-      sql: 'UPDATE projects SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-      args: [status, id]
+      sql: 'UPDATE projects SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?',
+      args: [status, id, userId]
     });
   },
 
-  async deleteProject(id) {
+  async deleteProject(id, userId) {
+    if (!userId) throw new Error('Unauthorized: User ID is required');
     return await db.execute({
-      sql: 'DELETE FROM projects WHERE id = ?',
-      args: [id]
+      sql: 'DELETE FROM projects WHERE id = ? AND user_id = ?',
+      args: [id, userId]
     });
   },
 
-  // Payments / Accounts
-  async getPayments(projectId = null) {
+  // ================= PAYMENTS / ACCOUNTS (Multi-Tenant User Scoped) =================
+  async getPayments(projectId = null, userId) {
+    if (!userId) return [];
     if (projectId) {
       const res = await db.execute({
         sql: `
           SELECT pmt.*, p.name as project_name, c.name as client_name
           FROM payments pmt
-          JOIN projects p ON pmt.project_id = p.id
-          JOIN clients c ON pmt.client_id = c.id
-          WHERE pmt.project_id = ?
+          JOIN projects p ON pmt.project_id = p.id AND p.user_id = ?
+          JOIN clients c ON pmt.client_id = c.id AND c.user_id = ?
+          WHERE pmt.project_id = ? AND pmt.user_id = ?
           ORDER BY pmt.payment_date DESC, pmt.id DESC
         `,
-        args: [projectId]
+        args: [userId, userId, projectId, userId]
       });
       return res.rows;
     }
-    const res = await db.execute(`
-      SELECT pmt.*, p.name as project_name, c.name as client_name, pt.name as project_type_name
-      FROM payments pmt
-      JOIN projects p ON pmt.project_id = p.id
-      JOIN clients c ON pmt.client_id = c.id
-      JOIN project_types pt ON p.project_type_id = pt.id
-      ORDER BY pmt.payment_date DESC, pmt.id DESC
-    `);
+    const res = await db.execute({
+      sql: `
+        SELECT pmt.*, p.name as project_name, c.name as client_name, pt.name as project_type_name
+        FROM payments pmt
+        JOIN projects p ON pmt.project_id = p.id AND p.user_id = ?
+        JOIN clients c ON pmt.client_id = c.id AND c.user_id = ?
+        JOIN project_types pt ON p.project_type_id = pt.id
+        WHERE pmt.user_id = ?
+        ORDER BY pmt.payment_date DESC, pmt.id DESC
+      `,
+      args: [userId, userId, userId]
+    });
     return res.rows;
   },
 
-  async addPayment(projectId, amount, paymentDate, paymentMethod, referenceNote) {
+  async addPayment(projectId, userId, amount, paymentDate, paymentMethod, referenceNote) {
+    if (!userId) throw new Error('Unauthorized: User ID is required');
     const projRes = await db.execute({
       sql: `
         SELECT p.*,
           COALESCE(SUM(pmt.amount), 0) as received_amount,
           MAX(0, (p.total_fee - COALESCE(SUM(pmt.amount), 0))) as balance_amount
         FROM projects p
-        LEFT JOIN payments pmt ON p.id = pmt.project_id
-        WHERE p.id = ?
+        LEFT JOIN payments pmt ON p.id = pmt.project_id AND pmt.user_id = ?
+        WHERE p.id = ? AND p.user_id = ?
         GROUP BY p.id
       `,
-      args: [projectId]
+      args: [userId, projectId, userId]
     });
     const proj = projRes.rows[0];
     if (!proj) throw new Error('Project not found');
@@ -1080,68 +1152,79 @@ const queries = {
 
     const res = await db.execute({
       sql: `
-        INSERT INTO payments (project_id, client_id, amount, payment_date, payment_method, reference_note)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO payments (project_id, client_id, amount, payment_date, payment_method, reference_note, user_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
       `,
-      args: [projectId, proj.client_id, amount, paymentDate, paymentMethod, referenceNote || null]
+      args: [projectId, proj.client_id, amount, paymentDate, paymentMethod, referenceNote || null, userId]
     });
 
     await db.execute({
-      sql: 'UPDATE projects SET updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-      args: [projectId]
+      sql: 'UPDATE projects SET updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?',
+      args: [projectId, userId]
     });
 
     return { lastInsertRowid: Number(res.lastInsertRowid) };
   },
 
-  async deletePayment(id) {
+  async deletePayment(id, userId) {
+    if (!userId) throw new Error('Unauthorized: User ID is required');
     const paymentRes = await db.execute({
-      sql: 'SELECT project_id FROM payments WHERE id = ?',
-      args: [id]
+      sql: 'SELECT project_id FROM payments WHERE id = ? AND user_id = ?',
+      args: [id, userId]
     });
     const payment = paymentRes.rows[0];
+    if (!payment) throw new Error('Payment not found');
 
     const res = await db.execute({
-      sql: 'DELETE FROM payments WHERE id = ?',
-      args: [id]
+      sql: 'DELETE FROM payments WHERE id = ? AND user_id = ?',
+      args: [id, userId]
     });
 
-    if (payment) {
-      await db.execute({
-        sql: 'UPDATE projects SET updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-        args: [payment.project_id]
-      });
-    }
+    await db.execute({
+      sql: 'UPDATE projects SET updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?',
+      args: [payment.project_id, userId]
+    });
     return res;
   },
 
-  async getAccountsSummary() {
-    const totalsRes = await db.execute(`
-      SELECT
-        COALESCE(SUM(p.total_fee), 0) as total_deal_amount,
-        COALESCE((SELECT SUM(amount) FROM payments), 0) as total_received
-      FROM projects p
-    `);
+  async getAccountsSummary(userId) {
+    if (!userId) {
+      return { total_deal: 0, total_received: 0, total_balance: 0, project_accounts: [] };
+    }
+    const totalsRes = await db.execute({
+      sql: `
+        SELECT
+          COALESCE(SUM(p.total_fee), 0) as total_deal_amount,
+          COALESCE((SELECT SUM(amount) FROM payments WHERE user_id = ?), 0) as total_received
+        FROM projects p
+        WHERE p.user_id = ?
+      `,
+      args: [userId, userId]
+    });
     const totals = totalsRes.rows[0];
     const totalDeal = totals ? totals.total_deal_amount : 0;
     const totalReceived = totals ? totals.total_received : 0;
     const totalBalance = Math.max(0, totalDeal - totalReceived);
 
-    const projectAccountsRes = await db.execute(`
-      SELECT p.id, p.name as project_name, p.location, p.status,
-             c.name as client_name,
-             pt.name as project_type_name, pt.badge_color,
-             p.total_fee as deal_amount,
-             COALESCE(SUM(pmt.amount), 0) as received_amount,
-             MAX(0, (p.total_fee - COALESCE(SUM(pmt.amount), 0))) as balance_amount,
-             MAX(pmt.payment_date) as last_payment_date
-      FROM projects p
-      JOIN clients c ON p.client_id = c.id
-      JOIN project_types pt ON p.project_type_id = pt.id
-      LEFT JOIN payments pmt ON p.id = pmt.project_id
-      GROUP BY p.id
-      ORDER BY balance_amount DESC, p.name ASC
-    `);
+    const projectAccountsRes = await db.execute({
+      sql: `
+        SELECT p.id, p.name as project_name, p.location, p.status,
+               c.name as client_name,
+               pt.name as project_type_name, pt.badge_color,
+               p.total_fee as deal_amount,
+               COALESCE(SUM(pmt.amount), 0) as received_amount,
+               MAX(0, (p.total_fee - COALESCE(SUM(pmt.amount), 0))) as balance_amount,
+               MAX(pmt.payment_date) as last_payment_date
+        FROM projects p
+        JOIN clients c ON p.client_id = c.id AND c.user_id = ?
+        JOIN project_types pt ON p.project_type_id = pt.id
+        LEFT JOIN payments pmt ON p.id = pmt.project_id AND pmt.user_id = ?
+        WHERE p.user_id = ?
+        GROUP BY p.id
+        ORDER BY balance_amount DESC, p.name ASC
+      `,
+      args: [userId, userId, userId]
+    });
 
     return {
       total_deal: totalDeal,
@@ -1151,12 +1234,13 @@ const queries = {
     };
   },
 
-  // Drawings
-  async getDrawings(projectId) {
+  // ================= DRAWINGS (Multi-Tenant User Scoped) =================
+  async getDrawings(projectId, userId) {
+    if (!userId) return [];
     const res = await db.execute({
       sql: `
         SELECT d.*,
-          (SELECT COUNT(*) FROM drawing_revisions WHERE drawing_id = d.id) as revision_count,
+          (SELECT COUNT(*) FROM drawing_revisions WHERE drawing_id = d.id AND user_id = ?) as revision_count,
           dr.revision_code as latest_revision,
           dr.revision_date as latest_date,
           dr.revision_note as latest_note,
@@ -1165,32 +1249,35 @@ const queries = {
           dr.file_size as latest_file_size,
           dr.file_type as latest_file_type
         FROM drawings d
+        JOIN projects p ON d.project_id = p.id AND p.user_id = ?
         LEFT JOIN (
           SELECT dr1.*
           FROM drawing_revisions dr1
           JOIN (
             SELECT drawing_id, MAX(id) as max_id
             FROM drawing_revisions
+            WHERE user_id = ?
             GROUP BY drawing_id
           ) dr2 ON dr1.id = dr2.max_id
         ) dr ON d.id = dr.drawing_id
-        WHERE d.project_id = ?
+        WHERE d.project_id = ? AND d.user_id = ?
         ORDER BY d.updated_at DESC
       `,
-      args: [projectId]
+      args: [userId, userId, userId, projectId, userId]
     });
     return res.rows;
   },
 
-  async getDrawingWithRevisions(drawingId) {
+  async getDrawingWithRevisions(drawingId, userId) {
+    if (!userId) return null;
     const drawingRes = await db.execute({
       sql: `
         SELECT d.*, p.name as project_name
         FROM drawings d
-        JOIN projects p ON d.project_id = p.id
-        WHERE d.id = ?
+        JOIN projects p ON d.project_id = p.id AND p.user_id = ?
+        WHERE d.id = ? AND d.user_id = ?
       `,
-      args: [drawingId]
+      args: [userId, drawingId, userId]
     });
     const drawing = drawingRes.rows[0];
     if (!drawing) return null;
@@ -1198,31 +1285,38 @@ const queries = {
     const revsRes = await db.execute({
       sql: `
         SELECT * FROM drawing_revisions
-        WHERE drawing_id = ?
+        WHERE drawing_id = ? AND user_id = ?
         ORDER BY id DESC
       `,
-      args: [drawingId]
+      args: [drawingId, userId]
     });
     drawing.revisions = revsRes.rows;
 
     return drawing;
   },
 
-  async createDrawing(projectId, name, drawingNumber, category, description, uploadedBy, revisionCode = 'R00', revisionNote = 'Initial release', fileUrl = '/assets/sample-floorplan.svg', fileName = 'drawing.pdf', fileSize = 150000, fileType = 'PDF') {
+  async createDrawing(projectId, userId, name, drawingNumber, category, description, uploadedBy, revisionCode = 'R00', revisionNote = 'Initial release', fileUrl = '/assets/sample-floorplan.svg', fileName = 'drawing.pdf', fileSize = 150000, fileType = 'PDF') {
+    if (!userId) throw new Error('Unauthorized: User ID is required');
+    const projCheck = await db.execute({
+      sql: 'SELECT id FROM projects WHERE id = ? AND user_id = ?',
+      args: [projectId, userId]
+    });
+    if (projCheck.rows.length === 0) throw new Error('Project not found');
+
     const res = await db.execute({
       sql: `
-        INSERT INTO drawings (project_id, name, drawing_number, category, description, uploaded_by)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO drawings (project_id, name, drawing_number, category, description, uploaded_by, user_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
       `,
-      args: [projectId, name, drawingNumber || null, category, description || null, uploadedBy || 'Architect']
+      args: [projectId, name, drawingNumber || null, category, description || null, uploadedBy || 'Architect', userId]
     });
     const drawingId = Number(res.lastInsertRowid);
 
     // Create initial revision
     await db.execute({
       sql: `
-        INSERT INTO drawing_revisions (drawing_id, revision_code, revision_note, revision_date, file_name, file_url, file_size, file_type)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO drawing_revisions (drawing_id, revision_code, revision_note, revision_date, file_name, file_url, file_size, file_type, user_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       args: [
         drawingId,
@@ -1232,23 +1326,32 @@ const queries = {
         fileName,
         fileUrl,
         fileSize,
-        fileType
+        fileType,
+        userId
       ]
     });
 
     await db.execute({
-      sql: 'UPDATE projects SET updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-      args: [projectId]
+      sql: 'UPDATE projects SET updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?',
+      args: [projectId, userId]
     });
 
     return drawingId;
   },
 
-  async addDrawingRevision(drawingId, revisionCode, revisionNote, revisionDate, fileName, fileUrl, fileSize = 0, fileType = 'PDF') {
+  async addDrawingRevision(drawingId, userId, revisionCode, revisionNote, revisionDate, fileName, fileUrl, fileSize = 0, fileType = 'PDF') {
+    if (!userId) throw new Error('Unauthorized: User ID is required');
+    const drawingCheck = await db.execute({
+      sql: 'SELECT id, project_id FROM drawings WHERE id = ? AND user_id = ?',
+      args: [drawingId, userId]
+    });
+    const drawing = drawingCheck.rows[0];
+    if (!drawing) throw new Error('Drawing not found');
+
     const res = await db.execute({
       sql: `
-        INSERT INTO drawing_revisions (drawing_id, revision_code, revision_note, revision_date, file_name, file_url, file_size, file_type)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO drawing_revisions (drawing_id, revision_code, revision_note, revision_date, file_name, file_url, file_size, file_type, user_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       args: [
         drawingId,
@@ -1258,183 +1361,229 @@ const queries = {
         fileName,
         fileUrl,
         fileSize,
-        fileType
+        fileType,
+        userId
       ]
     });
 
     await db.execute({
-      sql: 'UPDATE drawings SET updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-      args: [drawingId]
+      sql: 'UPDATE drawings SET updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?',
+      args: [drawingId, userId]
+    });
+
+    await db.execute({
+      sql: 'UPDATE projects SET updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?',
+      args: [drawing.project_id, userId]
     });
 
     return { lastInsertRowid: Number(res.lastInsertRowid) };
   },
 
-  async updateDrawing(id, name, drawingNumber, category, description) {
+  async updateDrawing(id, userId, name, drawingNumber, category, description) {
+    if (!userId) throw new Error('Unauthorized: User ID is required');
     return await db.execute({
       sql: `
         UPDATE drawings
         SET name = ?, drawing_number = ?, category = ?, description = ?, updated_at = CURRENT_TIMESTAMP
-        WHERE id = ?
+        WHERE id = ? AND user_id = ?
       `,
-      args: [name, drawingNumber || null, category, description || null, id]
+      args: [name, drawingNumber || null, category, description || null, id, userId]
     });
   },
 
-  async deleteDrawing(id) {
+  async deleteDrawing(id, userId) {
+    if (!userId) throw new Error('Unauthorized: User ID is required');
     return await db.execute({
-      sql: 'DELETE FROM drawings WHERE id = ?',
-      args: [id]
+      sql: 'DELETE FROM drawings WHERE id = ? AND user_id = ?',
+      args: [id, userId]
     });
   },
 
-  // Images
-  async getProjectImages(projectId, category = null) {
+  // ================= IMAGES (Multi-Tenant User Scoped) =================
+  async getProjectImages(projectId, userId, category = null) {
+    if (!userId) return [];
     if (category && category !== 'All') {
       const res = await db.execute({
         sql: `
-          SELECT * FROM project_images
-          WHERE project_id = ? AND category = ?
-          ORDER BY date DESC, id DESC
+          SELECT pi.* FROM project_images pi
+          JOIN projects p ON pi.project_id = p.id AND p.user_id = ?
+          WHERE pi.project_id = ? AND pi.user_id = ? AND pi.category = ?
+          ORDER BY pi.date DESC, pi.id DESC
         `,
-        args: [projectId, category]
+        args: [userId, projectId, userId, category]
       });
       return res.rows;
     }
     const res = await db.execute({
       sql: `
-        SELECT * FROM project_images
-        WHERE project_id = ?
-        ORDER BY date DESC, id DESC
+        SELECT pi.* FROM project_images pi
+        JOIN projects p ON pi.project_id = p.id AND p.user_id = ?
+        WHERE pi.project_id = ? AND pi.user_id = ?
+        ORDER BY pi.date DESC, pi.id DESC
       `,
-      args: [projectId]
+      args: [userId, projectId, userId]
     });
     return res.rows;
   },
 
-  async getProjectTimeline(projectId, sort = 'ASC') {
+  async getProjectTimeline(projectId, userId, sort = 'ASC') {
+    if (!userId) return [];
     const order = sort.toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
     const res = await db.execute({
       sql: `
-        SELECT * FROM project_images
-        WHERE project_id = ?
-        ORDER BY date ${order}, id ${order}
+        SELECT pi.* FROM project_images pi
+        JOIN projects p ON pi.project_id = p.id AND p.user_id = ?
+        WHERE pi.project_id = ? AND pi.user_id = ?
+        ORDER BY pi.date ${order}, pi.id ${order}
       `,
-      args: [projectId]
+      args: [userId, projectId, userId]
     });
     return res.rows;
   },
 
-  async createProjectImage(projectId, title, date, category, description, locationArea, uploadedBy, fileName, fileUrl, fileSize = 0) {
+  async createProjectImage(projectId, userId, title, date, category, description, locationArea, uploadedBy, fileName, fileUrl, fileSize = 0) {
+    if (!userId) throw new Error('Unauthorized: User ID is required');
+    const projCheck = await db.execute({
+      sql: 'SELECT id FROM projects WHERE id = ? AND user_id = ?',
+      args: [projectId, userId]
+    });
+    if (projCheck.rows.length === 0) throw new Error('Project not found');
+
     const res = await db.execute({
       sql: `
-        INSERT INTO project_images (project_id, title, date, category, description, location_area, uploaded_by, file_name, file_url, file_size)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO project_images (project_id, title, date, category, description, location_area, uploaded_by, file_name, file_url, file_size, user_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
-      args: [projectId, title, date, category, description || null, locationArea || null, uploadedBy || 'Architect', fileName, fileUrl, fileSize]
+      args: [projectId, title, date, category, description || null, locationArea || null, uploadedBy || 'Architect', fileName, fileUrl, fileSize, userId]
     });
 
     await db.execute({
-      sql: 'UPDATE projects SET updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-      args: [projectId]
+      sql: 'UPDATE projects SET updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?',
+      args: [projectId, userId]
     });
 
     return { lastInsertRowid: Number(res.lastInsertRowid) };
   },
 
-  async deleteProjectImage(id) {
+  async deleteProjectImage(id, userId) {
+    if (!userId) throw new Error('Unauthorized: User ID is required');
     return await db.execute({
-      sql: 'DELETE FROM project_images WHERE id = ?',
-      args: [id]
+      sql: 'DELETE FROM project_images WHERE id = ? AND user_id = ?',
+      args: [id, userId]
     });
   },
 
-  // Dashboard Summary
-  async getDashboardStats(userId = null) {
-    let pUserWhere = "";
-    let cUserWhere = "";
-    const pParams = [];
-    const cParams = [];
-    if (userId !== null && userId !== undefined) {
-      pUserWhere = " AND (user_id = ? OR user_id IS NULL)";
-      cUserWhere = " WHERE (user_id = ? OR user_id IS NULL)";
-      pParams.push(userId);
-      cParams.push(userId);
+  // ================= TASKS (Multi-Tenant User Scoped) =================
+  async getTasks(userId, projectId = null) {
+    if (!userId) return [];
+    if (projectId) {
+      const res = await db.execute({
+        sql: 'SELECT * FROM tasks WHERE user_id = ? AND project_id = ? ORDER BY created_at DESC',
+        args: [userId, projectId]
+      });
+      return res.rows;
+    }
+    const res = await db.execute({
+      sql: 'SELECT * FROM tasks WHERE user_id = ? ORDER BY created_at DESC',
+      args: [userId]
+    });
+    return res.rows;
+  },
+
+  async createTask(userId, projectId, title, dueDate) {
+    if (!userId) throw new Error('Unauthorized: User ID is required');
+    const res = await db.execute({
+      sql: 'INSERT INTO tasks (user_id, project_id, title, due_date) VALUES (?, ?, ?, ?)',
+      args: [userId, projectId || null, title, dueDate || null]
+    });
+    return { lastInsertRowid: Number(res.lastInsertRowid) };
+  },
+
+  async updateTaskStatus(id, userId, status) {
+    if (!userId) throw new Error('Unauthorized: User ID is required');
+    return await db.execute({
+      sql: 'UPDATE tasks SET status = ? WHERE id = ? AND user_id = ?',
+      args: [status, id, userId]
+    });
+  },
+
+  async deleteTask(id, userId) {
+    if (!userId) throw new Error('Unauthorized: User ID is required');
+    return await db.execute({
+      sql: 'DELETE FROM tasks WHERE id = ? AND user_id = ?',
+      args: [id, userId]
+    });
+  },
+
+  // ================= DASHBOARD SUMMARY (Strict Multi-Tenant Scoped) =================
+  async getDashboardStats(userId) {
+    if (!userId) {
+      return {
+        projects_counts: { active: 0, completed: 0, pre_planning: 0, total: 0 },
+        clients_count: 0,
+        financials: { total_deal: 0, total_received: 0, total_balance: 0 },
+        recent_projects: [],
+        recent_payments: []
+      };
     }
 
-    const activeRes = await db.execute({ sql: `SELECT COUNT(*) as c FROM projects WHERE status = 'Active'${pUserWhere}`, args: pParams });
+    const activeRes = await db.execute({ sql: `SELECT COUNT(*) as c FROM projects WHERE status = 'Active' AND user_id = ?`, args: [userId] });
     const active = activeRes.rows[0] ? activeRes.rows[0].c : 0;
 
-    const compRes = await db.execute({ sql: `SELECT COUNT(*) as c FROM projects WHERE status = 'Completed'${pUserWhere}`, args: pParams });
+    const compRes = await db.execute({ sql: `SELECT COUNT(*) as c FROM projects WHERE status = 'Completed' AND user_id = ?`, args: [userId] });
     const completed = compRes.rows[0] ? compRes.rows[0].c : 0;
 
-    const prepRes = await db.execute({ sql: `SELECT COUNT(*) as c FROM projects WHERE status = 'Pre-Planning'${pUserWhere}`, args: pParams });
+    const prepRes = await db.execute({ sql: `SELECT COUNT(*) as c FROM projects WHERE status = 'Pre-Planning' AND user_id = ?`, args: [userId] });
     const prePlanning = prepRes.rows[0] ? prepRes.rows[0].c : 0;
 
-    const clRes = await db.execute({ sql: `SELECT COUNT(*) as c FROM clients${cUserWhere}`, args: cParams });
+    const clRes = await db.execute({ sql: `SELECT COUNT(*) as c FROM clients WHERE user_id = ?`, args: [userId] });
     const totalClients = clRes.rows[0] ? clRes.rows[0].c : 0;
 
-    const totalsSql = (userId !== null && userId !== undefined)
-      ? `
+    const totalsRes = await db.execute({
+      sql: `
         SELECT
           COALESCE(SUM(p.total_fee), 0) as total_deal,
-          COALESCE((SELECT SUM(amount) FROM payments WHERE project_id IN (SELECT id FROM projects WHERE user_id = ? OR user_id IS NULL)), 0) as total_received
+          COALESCE((SELECT SUM(amount) FROM payments WHERE user_id = ?), 0) as total_received
         FROM projects p
-        WHERE (p.user_id = ? OR p.user_id IS NULL)
-      `
-      : `
-        SELECT
-          COALESCE(SUM(p.total_fee), 0) as total_deal,
-          COALESCE((SELECT SUM(amount) FROM payments), 0) as total_received
-        FROM projects p
-      `;
-    const totalsParams = (userId !== null && userId !== undefined) ? [userId, userId] : [];
-    const totalsRes = await db.execute({ sql: totalsSql, args: totalsParams });
+        WHERE p.user_id = ?
+      `,
+      args: [userId, userId]
+    });
     const totals = totalsRes.rows[0];
 
     const totalDeal = totals ? totals.total_deal : 0;
     const totalReceived = totals ? totals.total_received : 0;
     const totalBalance = Math.max(0, totalDeal - totalReceived);
 
-    let recentProjectsSql = `
-      SELECT p.*, c.name as client_name, pt.name as project_type_name, pt.badge_color,
-             COALESCE(SUM(pmt.amount), 0) as received_amount,
-             MAX(0, (p.total_fee - COALESCE(SUM(pmt.amount), 0))) as balance_amount
-      FROM projects p
-      JOIN clients c ON p.client_id = c.id
-      JOIN project_types pt ON p.project_type_id = pt.id
-      LEFT JOIN payments pmt ON p.id = pmt.project_id
-    `;
-    const rpParams = [];
-    if (userId !== null && userId !== undefined) {
-      recentProjectsSql += ` WHERE (p.user_id = ? OR p.user_id IS NULL)`;
-      rpParams.push(userId);
-    }
-    recentProjectsSql += `
-      GROUP BY p.id
-      ORDER BY p.updated_at DESC
-      LIMIT 4
-    `;
-    const recentProjectsRes = await db.execute({ sql: recentProjectsSql, args: rpParams });
-    const recentProjects = recentProjectsRes.rows;
+    const recentProjectsRes = await db.execute({
+      sql: `
+        SELECT p.*, c.name as client_name, pt.name as project_type_name, pt.badge_color,
+               COALESCE(SUM(pmt.amount), 0) as received_amount,
+               MAX(0, (p.total_fee - COALESCE(SUM(pmt.amount), 0))) as balance_amount
+        FROM projects p
+        JOIN clients c ON p.client_id = c.id AND c.user_id = ?
+        JOIN project_types pt ON p.project_type_id = pt.id
+        LEFT JOIN payments pmt ON p.id = pmt.project_id AND pmt.user_id = ?
+        WHERE p.user_id = ?
+        GROUP BY p.id
+        ORDER BY p.updated_at DESC
+        LIMIT 4
+      `,
+      args: [userId, userId, userId]
+    });
 
-    let recentPaymentsSql = `
-      SELECT pmt.*, p.name as project_name, c.name as client_name
-      FROM payments pmt
-      JOIN projects p ON pmt.project_id = p.id
-      JOIN clients c ON pmt.client_id = c.id
-    `;
-    const rpayParams = [];
-    if (userId !== null && userId !== undefined) {
-      recentPaymentsSql += ` WHERE (p.user_id = ? OR p.user_id IS NULL)`;
-      rpayParams.push(userId);
-    }
-    recentPaymentsSql += `
-      ORDER BY pmt.payment_date DESC, pmt.id DESC
-      LIMIT 4
-    `;
-    const recentPaymentsRes = await db.execute({ sql: recentPaymentsSql, args: rpayParams });
-    const recentPayments = recentPaymentsRes.rows;
+    const recentPaymentsRes = await db.execute({
+      sql: `
+        SELECT pmt.*, p.name as project_name, c.name as client_name
+        FROM payments pmt
+        JOIN projects p ON pmt.project_id = p.id AND p.user_id = ?
+        JOIN clients c ON pmt.client_id = c.id AND c.user_id = ?
+        WHERE pmt.user_id = ?
+        ORDER BY pmt.payment_date DESC, pmt.id DESC
+        LIMIT 4
+      `,
+      args: [userId, userId, userId]
+    });
 
     return {
       projects_counts: {
@@ -1449,8 +1598,8 @@ const queries = {
         total_received: totalReceived,
         total_balance: totalBalance
       },
-      recent_projects: recentProjects,
-      recent_payments: recentPayments
+      recent_projects: recentProjectsRes.rows,
+      recent_payments: recentPaymentsRes.rows
     };
   }
 };
