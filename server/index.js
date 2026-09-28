@@ -166,8 +166,20 @@ function extractToken(req) {
 // Auth Middleware (supports direct session, Passport session with 2FA check, and Bearer/Cookie token)
 async function authRequired(req, res, next) {
   try {
+    // 0. Explicitly allow /verify-otp and auth endpoints to bypass middleware
+    if (
+      req.path === '/verify-otp' ||
+      req.path === '/login' ||
+      req.path.startsWith('/api/auth/')
+    ) {
+      return next();
+    }
+
     // 1. Block access if user has pending 2FA that is not yet verified
     if (req.session && req.session.pendingEmail && !req.session.is2FAVerified) {
+      if (req.path === '/verify-otp') {
+        return next();
+      }
       if (req.accepts('html') && !req.is('json') && !req.path.startsWith('/api')) {
         return res.redirect('/verify-otp');
       }
@@ -253,10 +265,12 @@ app.get(
       // Store in Turso otps table with expires_at = datetime('now', '+5 minutes') (clears old OTPs first)
       await queries.saveOTP(user.email, otp);
 
-      // Send email via Nodemailer
-      await sendOTPEmail(user.email, otp).catch(err => {
-        console.error('Failed to send OTP email:', err.message);
-      });
+      // Send email via Nodemailer in an isolated try/catch so failures do NOT abort or crash the route
+      try {
+        await sendOTPEmail(user.email, otp);
+      } catch (err) {
+        console.error('Nodemailer error:', err);
+      }
 
       // Do NOT grant full workspace access yet. Set session state:
       req.session.pendingEmail = user.email;
@@ -268,8 +282,8 @@ app.get(
 
       // Redirect user to /verify-otp with forced session save
       req.session.save((err) => {
-        if (err) console.error('Session save error on Google callback:', err);
-        res.redirect('/verify-otp');
+        if (err) console.error('Session save error:', err);
+        return res.redirect('/verify-otp');
       });
     } catch (err) {
       console.error('Google callback error:', err);
@@ -277,6 +291,17 @@ app.get(
     }
   }
 );
+
+// GET /verify-otp - Renders or serves the OTP page as long as pendingEmail or temporary session exists
+app.get('/verify-otp', (req, res) => {
+  if (req.session && req.session.user && req.session.is2FAVerified === true) {
+    return res.redirect('/');
+  }
+  if (req.session && (req.session.pendingEmail || req.session.user)) {
+    return res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
+  }
+  return res.redirect('/');
+});
 
 // GET /api/auth/otp-status - Returns pending email for 2FA or 401 if unauthenticated
 app.get('/api/auth/otp-status', (req, res) => {
@@ -377,9 +402,11 @@ app.post('/api/auth/resend-otp', async (req, res) => {
 
     const newOtp = Math.floor(100000 + Math.random() * 900000).toString();
     await queries.saveOTP(email, newOtp);
-    await sendOTPEmail(email, newOtp).catch(err => {
-      console.error('Failed to resend OTP email:', err.message);
-    });
+    try {
+      await sendOTPEmail(email, newOtp);
+    } catch (err) {
+      console.error('Nodemailer error:', err);
+    }
 
     req.session.lastOtpSentAt = Date.now();
 

@@ -1,29 +1,16 @@
 const nodemailer = require('nodemailer');
 
-function createTransporter() {
-  const user = process.env.EMAIL_USER;
-  const pass = process.env.EMAIL_APP_PASSWORD;
-
-  if (!user || !pass) {
-    console.warn('⚠️ Nodemailer: EMAIL_USER and/or EMAIL_APP_PASSWORD not set in environment. Simulated emails will be logged to console.');
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_APP_PASSWORD?.replace(/\s+/g, '')
   }
-
-  return nodemailer.createTransport({
-    host: 'smtp.gmail.com',
-    port: 465,
-    secure: true,
-    auth: {
-      user: user || '',
-      pass: pass || ''
-    }
-  });
-}
-
-const transporter = createTransporter();
+});
 
 async function sendOTPEmail(toEmail, otp) {
   const user = process.env.EMAIL_USER;
-  const pass = process.env.EMAIL_APP_PASSWORD;
+  const pass = process.env.EMAIL_APP_PASSWORD?.replace(/\s+/g, '');
 
   const html = `
     <!DOCTYPE html>
