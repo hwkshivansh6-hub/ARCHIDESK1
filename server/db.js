@@ -555,6 +555,15 @@ const queries = {
     return res.rows[0] || null;
   },
 
+  async getUserByEmailOrUsername(identifier) {
+    const clean = (identifier || '').trim().toLowerCase();
+    const res = await db.execute({
+      sql: 'SELECT * FROM users WHERE LOWER(email) = ? OR LOWER(name) = ? LIMIT 1',
+      args: [clean, clean]
+    });
+    return res.rows[0] || null;
+  },
+
   async getUserById(id) {
     const res = await db.execute({
       sql: 'SELECT id, email, name, studio_name, role, google_id, avatar_url, auth_provider, created_at FROM users WHERE id = ?',

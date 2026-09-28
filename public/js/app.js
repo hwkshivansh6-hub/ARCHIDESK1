@@ -85,8 +85,8 @@ async function apiRequest(endpoint, options = {}) {
     });
 
     if (res.status === 401) {
-      // Only logout if this was an authenticated API request, NOT during login or registration
-      if (!endpoint.startsWith('/auth/login') && !endpoint.startsWith('/auth/register') && !endpoint.startsWith('/auth/google')) {
+      // Only logout if this was an authenticated API request, NOT during login
+      if (!endpoint.startsWith('/auth/login')) {
         logout();
         throw new Error('Session expired. Please log in again.');
       }
@@ -289,21 +289,9 @@ function updateUserDisplay() {
       } else {
         sGoogle.innerHTML = `
           <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;">
-            <span style="color: var(--arch-ink-muted); font-size: 12px;">Not connected to Google</span>
-            <button class="btn btn-secondary btn-sm" id="btn-settings-connect-google" style="font-size: 11px; padding: 4px 10px;">
-              ⚡ Connect Google ID
-            </button>
+            <span style="color: var(--arch-ink-muted); font-size: 12px;">Not connected (Google OAuth ready to configure)</span>
           </div>
         `;
-        const btnConn = document.getElementById('btn-settings-connect-google');
-        if (btnConn) {
-          btnConn.addEventListener('click', (e) => {
-            e.preventDefault();
-            const emailInput = document.getElementById('google-input-email');
-            if (emailInput && state.user.email) emailInput.value = state.user.email;
-            openModal('modal-google-auth');
-          });
-        }
       }
     }
   }
@@ -342,34 +330,6 @@ function logout() {
   showAuth();
   showToast('Logged out successfully', 'success');
 }
-
-// ================= GOOGLE AUTHENTICATION & REAL-TIME SYNC =================
-async function authenticateWithGoogle(payload) {
-  try {
-    showToast('Connecting and syncing with Google...', 'info');
-    const res = await apiRequest('/auth/google', {
-      method: 'POST',
-      body: payload
-    });
-
-    state.token = res.token;
-    state.user = res.user;
-    localStorage.setItem('archidesk_token', res.token);
-
-    closeModal('modal-google-auth');
-    showToast(`Google Sync Active: Welcome, ${res.user.name}!`, 'success');
-    showApp();
-  } catch (err) {
-    showToast(err.message || 'Google authentication failed', 'error');
-  }
-}
-
-// Global Google Identity Services (GSI) Callback
-window.handleGoogleCredentialResponse = function(response) {
-  if (response && response.credential) {
-    authenticateWithGoogle({ credential: response.credential });
-  }
-};
 
 
 // ================= LOAD DATA =================
@@ -1700,116 +1660,6 @@ function initEventListeners() {
     }
   });
 
-  // Registration Form Submit
-  document.getElementById('register-form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const name = document.getElementById('reg-name').value.trim();
-    const email = document.getElementById('reg-email').value.trim();
-    const password = document.getElementById('reg-password').value;
-    const studio_name = document.getElementById('reg-studio').value.trim();
-    const role = document.getElementById('reg-role').value.trim();
-
-    try {
-      const res = await apiRequest('/auth/register', {
-        method: 'POST',
-        body: { name, email, password, studio_name, role }
-      });
-
-      state.token = res.token;
-      state.user = res.user;
-      localStorage.setItem('archidesk_token', res.token);
-
-      showToast(`Welcome to SHASWAT DESIGNS, ${res.user.name}!`, 'success');
-      showApp();
-    } catch (err) {
-      showToast(err.message, 'error');
-    }
-  });
-
-  // Google Sign-In / Register Buttons
-  const btnGoogleSignin = document.getElementById('btn-google-signin');
-  if (btnGoogleSignin) {
-    btnGoogleSignin.addEventListener('click', () => {
-      const emailInput = document.getElementById('google-input-email');
-      const loginEmail = document.getElementById('login-email').value.trim();
-      if (emailInput && loginEmail && loginEmail !== 'architect@archidesk.com') {
-        emailInput.value = loginEmail;
-      }
-      openModal('modal-google-auth');
-    });
-  }
-
-  const btnGoogleRegister = document.getElementById('btn-google-register');
-  if (btnGoogleRegister) {
-    btnGoogleRegister.addEventListener('click', () => {
-      const emailInput = document.getElementById('google-input-email');
-      const nameInput = document.getElementById('google-input-name');
-      const studioInput = document.getElementById('google-input-studio');
-      const regEmail = document.getElementById('reg-email').value.trim();
-      const regName = document.getElementById('reg-name').value.trim();
-      const regStudio = document.getElementById('reg-studio').value.trim();
-      if (emailInput && regEmail) emailInput.value = regEmail;
-      if (nameInput && regName) nameInput.value = regName;
-      if (studioInput && regStudio) studioInput.value = regStudio;
-      openModal('modal-google-auth');
-    });
-  }
-
-  // Google Sync Form Submit
-  const formGoogleAuth = document.getElementById('form-google-auth');
-  if (formGoogleAuth) {
-    formGoogleAuth.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const email = document.getElementById('google-input-email').value.trim();
-      const name = document.getElementById('google-input-name').value.trim();
-      const studio_name = document.getElementById('google-input-studio').value.trim();
-      const role = document.getElementById('google-input-role').value.trim();
-
-      await authenticateWithGoogle({ email, name, studio_name, role });
-    });
-  }
-
-  // Auth Tabs Switcher
-  const tabLogin = document.getElementById('tab-auth-login');
-  const tabRegister = document.getElementById('tab-auth-register');
-  const formLogin = document.getElementById('login-form');
-  const formRegister = document.getElementById('register-form');
-
-  function switchToRegister() {
-    formLogin.style.display = 'none';
-    formRegister.style.display = 'block';
-    tabLogin.classList.remove('active');
-    tabRegister.classList.add('active');
-  }
-
-  function switchToLogin() {
-    formRegister.style.display = 'none';
-    formLogin.style.display = 'block';
-    tabRegister.classList.remove('active');
-    tabLogin.classList.add('active');
-  }
-
-  tabLogin.addEventListener('click', switchToLogin);
-  tabRegister.addEventListener('click', switchToRegister);
-
-  document.getElementById('link-switch-to-register').addEventListener('click', (e) => {
-    e.preventDefault();
-    const emailVal = document.getElementById('login-email').value;
-    if (emailVal) document.getElementById('reg-email').value = emailVal;
-    switchToRegister();
-  });
-
-  document.getElementById('link-switch-to-login').addEventListener('click', (e) => {
-    e.preventDefault();
-    switchToLogin();
-  });
-
-  // Demo auto-fill
-  document.getElementById('quick-demo-fill').addEventListener('click', () => {
-    document.getElementById('login-email').value = 'architect@archidesk.com';
-    document.getElementById('login-password').value = 'studio2026';
-    showToast('Demo architect credentials filled', 'success');
-  });
 
   // Logout button
   document.getElementById('logout-btn').addEventListener('click', logout);

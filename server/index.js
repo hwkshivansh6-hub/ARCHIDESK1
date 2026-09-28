@@ -97,57 +97,17 @@ async function authRequired(req, res, next) {
 }
 
 // ================= AUTH ROUTES =================
-app.post('/api/auth/register', async (req, res) => {
-  try {
-    const { email, password, name, studio_name, role } = req.body;
-    if (!email || !email.trim()) {
-      return res.status(400).json({ error: 'Email address is required' });
-    }
-    if (!password || password.length < 4) {
-      return res.status(400).json({ error: 'Password must be at least 4 characters' });
-    }
-
-    const cleanEmail = email.trim().toLowerCase();
-    const existing = await queries.getUserByEmail(cleanEmail);
-    if (existing) {
-      return res.status(400).json({ error: 'An account with this email already exists. Please log in.' });
-    }
-
-    const newUserId = await queries.createUser(
-      cleanEmail,
-      password,
-      name ? name.trim() : 'Er. Shivansh',
-      studio_name ? studio_name.trim() : 'SHASWAT DESIGNS',
-      role ? role.trim() : 'Principal Architect'
-    );
-
-    const user = await queries.getUserById(newUserId);
-    const session = await queries.createSession(user.id);
-
-    res.json({
-      success: true,
-      message: 'Account registered successfully',
-      token: session.token,
-      expiresAt: session.expiresAt,
-      user
-    });
-  } catch (err) {
-    console.error('Registration error:', err);
-    res.status(500).json({ error: 'Internal server error during registration' });
-  }
-});
-
 app.post('/api/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
     if (!email || !password) {
-      return res.status(400).json({ error: 'Email and password are required' });
+      return res.status(400).json({ error: 'Studio Email / Username and password are required' });
     }
 
-    const cleanEmail = email.trim().toLowerCase();
-    const user = await queries.getUserByEmail(cleanEmail);
+    const cleanIdentifier = email.trim().toLowerCase();
+    const user = await (queries.getUserByEmailOrUsername ? queries.getUserByEmailOrUsername(cleanIdentifier) : queries.getUserByEmail(cleanIdentifier));
     if (!user) {
-      return res.status(401).json({ error: 'No account found with this email. Click "Register New Account" to sign up!' });
+      return res.status(401).json({ error: 'Invalid studio email/username or password.' });
     }
 
     if (user.password_hash !== hashPassword(password)) {
@@ -169,92 +129,6 @@ app.post('/api/auth/login', async (req, res) => {
   } catch (err) {
     console.error('Login error:', err);
     res.status(500).json({ error: 'Internal server error during login' });
-  }
-});
-
-// Google Authentication Route
-app.post('/api/auth/google', async (req, res) => {
-  try {
-    const { credential, google_id, email, name, avatar_url, studio_name, role } = req.body;
-
-    let finalGoogleId = google_id;
-    let finalEmail = email;
-    let finalName = name;
-    let finalAvatar = avatar_url;
-
-    // If Google Identity Services JWT credential is provided, decode/verify it
-    if (credential) {
-      try {
-        const gRes = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(credential)}`, {
-          signal: AbortSignal.timeout(4000)
-        });
-        if (gRes.ok) {
-          const payload = await gRes.json();
-          finalGoogleId = payload.sub;
-          finalEmail = payload.email;
-          finalName = payload.name || payload.given_name;
-          finalAvatar = payload.picture;
-        } else {
-          const parts = credential.split('.');
-          if (parts.length === 3) {
-            const claims = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
-            finalGoogleId = claims.sub || finalGoogleId;
-            finalEmail = claims.email || finalEmail;
-            finalName = claims.name || claims.given_name || finalName;
-            finalAvatar = claims.picture || finalAvatar;
-          }
-        }
-      } catch (tokenErr) {
-        try {
-          const parts = credential.split('.');
-          if (parts.length === 3) {
-            const claims = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
-            finalGoogleId = claims.sub || finalGoogleId;
-            finalEmail = claims.email || finalEmail;
-            finalName = claims.name || claims.given_name || finalName;
-            finalAvatar = claims.picture || finalAvatar;
-          }
-        } catch (e) {}
-      }
-    }
-
-    if (!finalEmail || !finalEmail.trim()) {
-      return res.status(400).json({ error: 'Valid Google account email is required' });
-    }
-
-    const cleanEmail = finalEmail.trim().toLowerCase();
-    const cleanGoogleId = finalGoogleId ? String(finalGoogleId).trim() : `g_${cleanEmail.replace(/[^a-zA-Z0-9]/g, '_')}`;
-
-    const user = await queries.createOrUpdateGoogleUser({
-      googleId: cleanGoogleId,
-      email: cleanEmail,
-      name: finalName ? finalName.trim() : 'Google Architect',
-      avatarUrl: finalAvatar || null,
-      studioName: studio_name ? studio_name.trim() : undefined,
-      role: role ? role.trim() : 'Principal Architect'
-    });
-
-    const session = await queries.createSession(user.id);
-
-    res.json({
-      success: true,
-      message: 'Signed in with Google successfully',
-      token: session.token,
-      expiresAt: session.expiresAt,
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        studio_name: user.studio_name,
-        role: user.role,
-        google_id: user.google_id,
-        avatar_url: user.avatar_url,
-        auth_provider: user.auth_provider
-      }
-    });
-  } catch (err) {
-    console.error('Google Sign-In error:', err);
-    res.status(500).json({ error: err.message || 'Error authenticating with Google' });
   }
 });
 
