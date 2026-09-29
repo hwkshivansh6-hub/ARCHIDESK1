@@ -1,7 +1,7 @@
-const { resend, sendOtpEmail } = require('./mailer');
+const { sendOtpEmail, sendOTPEmail } = require('./mailer');
 
 module.exports = {
-  resend,
   sendOtpEmail,
-  sendOTPEmail: sendOtpEmail
+  sendOTPEmail
 };
+
