@@ -1,13 +1,18 @@
 const { google } = require('googleapis');
 
+const clientId = (process.env.GOOGLE_CLIENT_ID || '').trim();
+const clientSecret = (process.env.GOOGLE_CLIENT_SECRET || '').trim();
+const refreshToken = (process.env.GMAIL_REFRESH_TOKEN || '').replace(/\s+/g, '');
+const senderEmail = (process.env.GMAIL_SENDER || '').trim();
+
 const oauth2Client = new google.auth.OAuth2(
-  process.env.GOOGLE_CLIENT_ID,
-  process.env.GOOGLE_CLIENT_SECRET,
+  clientId,
+  clientSecret,
   'https://developers.google.com/oauthplayground'
 );
 
 oauth2Client.setCredentials({
-  refresh_token: process.env.GMAIL_REFRESH_TOKEN
+  refresh_token: refreshToken
 });
 
 const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
@@ -15,7 +20,7 @@ const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
 function createRawEmail(to, subject, htmlContent) {
   const utf8Subject = `=?utf-8?B?${Buffer.from(subject).toString('base64')}?=`;
   const messageParts = [
-    `From: Archidesk Security <${process.env.GMAIL_SENDER}>`,
+    `From: Archidesk Security <${senderEmail}>`,
     `To: ${to}`,
     'Content-Type: text/html; charset=utf-8',
     'MIME-Version: 1.0',
